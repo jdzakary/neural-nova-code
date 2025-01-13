@@ -6,7 +6,7 @@ and are looking to replicate the results.
 This sub-folder contains all the code I reference in the article,
 enabling you to follow along and train your own version of the tic-tac-toe agents.
 
-* If you just want the final ONNX model files, you can find them under `00FF0000/results`.
+* If you just want the final ONNX model files, you can find them under `00FF0000/exports`.
 * If you would like to use the raw RlLib training results without running training on your
 own machine, you will need to download the zipped results from the blog. 
 The results folder is quite messy for git to keep track of, so I decided to exclude it
@@ -23,4 +23,4 @@ My results for the top 5 trials were as follows:
 | 5dc51969 | 0.8108 | 243   | 243       | 0.000392      | 0.7170      | 0.9690 |
 
 I used `checkpoint_000011` from trial `d0b8ob71` to create the ONNX files that are 
-located in `00FF0000/results`
+located in `00FF0000/exports`
