@@ -1,6 +1,10 @@
 import json
 import os
 import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+from matplotlib.gridspec import GridSpec
 
 from shared.ray.result_extraction import extract_df, identify_best
 
@@ -22,6 +26,8 @@ def create_readable_csv():
         'env_runners/Tie': 'Tie',
         'env_runners/episode_len_mean': 'EpisodeLengthMean',
         'env_runners/episode_return_mean': 'EpisodeReturnMean',
+        'env_runners/agent_episode_returns_mean/O': 'ReturnO',
+        'env_runners/agent_episode_returns_mean/X': 'ReturnX',
     }
     to_keep = list(col_map.keys())
     for trial in os.listdir('results/Random-First-Move'):
@@ -64,9 +70,51 @@ def hyperparameter_extraction() -> pd.DataFrame:
     return info
 
 
+def create_plots() -> None:
+    df = pd.read_csv('analysis/d0b80b71.csv')
+    df['Episodes'] /= 1000
+
+    fig: Figure = plt.figure(figsize=(8, 6))
+    grid = GridSpec(2, 2, figure=fig)
+    ax1 = fig.add_subplot(grid[:, 0])
+    ax2 = fig.add_subplot(grid[0, 1])
+    ax3 = fig.add_subplot(grid[1, 1])
+
+    ax1.plot(df['Episodes'], df['WinX'], label='WinX')
+    ax1.plot(df['Episodes'], df['WinO'], label='WinO')
+    ax1.plot(df['Episodes'], df['Tie'], label='Tie')
+    ax1.set_ylabel('Outcome Percentage', fontsize=14)
+    ax1.tick_params(labelsize=12)
+    ax1.set_xlim(0)
+    ax1.set_ylim(0)
+    labels = ax1.get_xticks()
+    ax1.set_xticklabels([f'{x:.0f}k' for x in labels])
+    ax1.legend(edgecolor='black')
+
+    ax2.plot(df['Episodes'], df['EpisodeReturnMean'], label='SUM', color='#116925')
+    ax2.plot(df['Episodes'], df['ReturnO'], label='Agent O', color='#9e0c09')
+    ax2.plot(df['Episodes'], df['ReturnX'], label='Agent X', color='#424b54')
+    labels = ax2.get_xticks()
+    ax2.set_xticklabels([f'{x:.0f}k' for x in labels])
+    ax2.set_ylabel('Average Return', fontsize=14)
+    ax2.tick_params(labelsize=12)
+    ax2.legend(edgecolor='black')
+
+    ax3.plot(df['Episodes'], df['EpisodeLengthMean'], color='black')
+    labels = ax3.get_xticks()
+    ax3.set_xticklabels([f'{x:.0f}k' for x in labels])
+    ax3.set_ylabel('Average Turns', fontsize=14)
+    ax3.tick_params(labelsize=12)
+
+    plt.tight_layout()
+    fig.savefig('analysis/d0b80b71.png', dpi=100)
+    plt.show()
+
+
 def main():
     create_readable_csv()
     find_best()
+    create_plots()
 
 
 if __name__ == '__main__':
