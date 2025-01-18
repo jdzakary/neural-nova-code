@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from ray.rllib.utils.torch_utils import FLOAT_MIN
 
-from shared.ray.model_export import create_torch_model
+from shared.ray.model_export import create_torch_model, show_model_interior
 
 PROJECT_PATH = Path(__file__).parent
 

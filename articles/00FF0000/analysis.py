@@ -85,10 +85,7 @@ def create_plots() -> None:
     ax1.plot(df['Episodes'], df['Tie'], label='Tie')
     ax1.set_ylabel('Outcome Percentage', fontsize=14)
     ax1.tick_params(labelsize=12)
-    ax1.set_xlim(0)
-    ax1.set_ylim(0)
-    labels = ax1.get_xticks()
-    ax1.set_xticklabels([f'{x:.0f}k' for x in labels])
+    ax1.set_xticklabels([f'{x:.0f}k' for x in [0, 0, 25, 50, 75, 100, 125]])
     ax1.legend(edgecolor='black')
 
     ax2.plot(df['Episodes'], df['EpisodeReturnMean'], label='SUM', color='#116925')
@@ -103,7 +100,7 @@ def create_plots() -> None:
     ax3.plot(df['Episodes'], df['EpisodeLengthMean'], color='black')
     labels = ax3.get_xticks()
     ax3.set_xticklabels([f'{x:.0f}k' for x in labels])
-    ax3.set_ylabel('Average Turns', fontsize=14)
+    ax3.set_ylabel('Average Length', fontsize=14)
     ax3.tick_params(labelsize=12)
 
     plt.tight_layout()
