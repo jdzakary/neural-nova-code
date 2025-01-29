@@ -99,7 +99,6 @@ class Game:
                         self.__constraint[br*3:br*3+3, bc*3:bc*3+3] = 1
         self.__constraint[self.__board != 0] = 0
 
-
     def __can_continue(self, board: np.ndarray) -> bool:
         if np.all(board != 0):
             return False

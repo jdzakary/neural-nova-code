@@ -1,14 +1,15 @@
 import functools
-from typing import Literal
+from typing import Literal, Any, SupportsFloat
 
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
-from gymnasium.core import ObsType
+from gymnasium.core import ObsType, ActType
 from pettingzoo import ParallelEnv
 from pettingzoo.utils.env import AgentID, ActionType
 
 from game import Game
+
 
 class MegaTicTacToe(ParallelEnv):
     metadata = {'render.modes': ['human'], "name": "MegaTicTacToe"}
@@ -124,3 +125,74 @@ class MegaTicTacToe(ParallelEnv):
 
     def __not_turn(self) -> Literal['X', 'O']:
         return 'X' if self.__turn == 'O' else 'O'
+
+
+class MegaTicTacToeSingle(gym.Env):
+    metadata = {'render.modes': ['human']}
+
+    def __init__(self, options: dict, render_mode=None):
+        self.observation_space = spaces.Dict({
+            'observations': spaces.Box(low=-1, high=1, shape=(9, 9, 2), dtype=int),
+            'action_mask': spaces.Box(low=0.0, high=1.0, shape=(81,), dtype=int)
+        })
+        self.action_space = spaces.Discrete(81)
+        self.render_mode = render_mode
+        self.__tie_penalty = options.get('tie_penalty', 0.25)
+        self.__player = options.get('player', 1)
+        if self.__player not in [1, -1]:
+            raise ValueError('Player Must be 1 or -1 (X or O)')
+
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> tuple[ObsType, dict[str, Any]]:
+        super().reset(seed=seed)
+        self.__game = Game()
+        self.__obs = np.zeros((9, 9, 2), dtype=np.int8)
+        if self.__player == -1:
+            self.__enemy_move()
+        return {
+            'observations': self.__create_observations(),
+            'action_mask': self.__game.constraint,
+        }, {}
+
+    def step(
+        self, action: ActType
+    ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
+        self.__game.move(*np.unravel_index(action, (9, 9)))
+        if not self.__game.game_over:
+            self.__enemy_move()
+        reward = 0
+        info = {}
+        if self.__game.game_over:
+            if self.__game.winner_symbol == 'O':
+                reward = 1
+                info['outcome'] = 'win'
+            elif self.__game.winner_symbol == 'X':
+                reward = -1
+                info['outcome'] = 'lose'
+            else:
+                reward = self.__tie_penalty
+                info['outcome'] = 'tie'
+        return (
+            {
+                'observations': self.__create_observations(),
+                'action_mask': self.__game.constraint,
+            },
+            reward,
+            self.__game.game_over,
+            False,
+            info
+        )
+
+    def __enemy_move(self) -> None:
+        mask = self.__game.constraint.flatten()
+        idx = np.argwhere(mask).flatten()
+        return np.random.choice(idx)
+
+    def __create_observations(self):
+        self.__obs[:, :, 1] = self.__obs[:, :, 0]
+        self.__obs[:, :, 0] = self.__game.board
+        return self.__obs
