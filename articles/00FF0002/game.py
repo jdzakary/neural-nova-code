@@ -25,25 +25,20 @@ class Game:
         return np.all(self.__big_remaining == 0)
 
     @property
-    def winner_symbol(self) -> Literal['X', 'O'] | None:
-        if self.__winner == 1:
-            return 'X'
-        elif self.__winner == -1:
-            return 'O'
-        else:
-            return None
+    def winner(self) -> int:
+        return self.__winner
 
     @property
     def constraint(self) -> np.ndarray:
         return self.__constraint
 
     def __init__(self):
-        self.__board = np.zeros((9, 9), dtype=np.int8)
-        self.__big_board = np.zeros((3, 3), dtype=np.int8)
-        self.__big_remaining = np.ones((3, 3), dtype=np.int8)
+        self.__board = np.zeros((9, 9), dtype=np.float64)
+        self.__big_board = np.zeros((3, 3), dtype=np.float64)
+        self.__big_remaining = np.ones((3, 3), dtype=np.float64)
         self.__player = 1
         self.__winner = 0
-        self.__constraint = np.ones((9, 9), dtype=np.int8)
+        self.__constraint = np.ones((9, 9), dtype=np.float64)
         self.__turns = 0
 
     def __switch_player(self) -> None:

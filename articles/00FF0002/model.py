@@ -1,25 +1,22 @@
-from typing import Dict, Any
-
 import torch
 from torch import nn
 
-from ray.rllib.core.rl_module.rl_module import RLModuleConfig
-from ray.rllib.algorithms.ppo.torch.ppo_torch_rl_module import PPOTorchRLModule
 
+class MyPolicy(nn.Module):
 
-class CustomTicTacToe(PPOTorchRLModule):
-    def __init__(self, config: RLModuleConfig) -> None:
-        super().__init__(config)
-
-    def setup(self):
-        input_dim = self.observation_space.shape[0]
-        hidden_dim = self.model_config["fcnet_hiddens"][0]
-        output_dim = self.action_space.n
-
-        self.policy = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim),
+    def __init__(self):
+        super().__init__()
+        self.actor_net = nn.Sequential(
+            nn.Conv2d(in_channels=1, out_channels=64, kernel_size=3, stride=3),
+            nn.Conv2d(in_channels=64, out_channels=256, kernel_size=3, stride=3),
+            nn.Flatten(0, -1),
+            nn.Linear(256, 256),
+            nn.LeakyReLU(),
+            nn.Linear(256, 81),
         )
 
-        self.input_dim = input_dim
+
+    def forward(self, observations: torch.Tensor, action_mask: torch.Tensor):
+        logits: torch.Tensor = self.actor_net(observations)
+        masked = torch.masked_fill(logits, action_mask == 0, -2e37)
+        return masked
