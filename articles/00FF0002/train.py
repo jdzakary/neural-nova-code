@@ -1,6 +1,6 @@
 import multiprocessing
 import warnings
-from collections import defaultdict, OrderedDict
+from collections import OrderedDict
 
 import gym
 import torch
@@ -11,6 +11,7 @@ from torchrl.collectors import MultiSyncDataCollector
 from torchrl.envs import GymEnv, TransformedEnv, DoubleToFloat, StepCounter, Compose
 from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
+from torchrl.record import CSVLogger
 from tqdm import tqdm
 
 from model import SharedActorCritic
@@ -29,7 +30,7 @@ def create_env() -> TransformedEnv:
     base_env = GymEnv(
         env_name='MegaTicTacToe-v0',
         options={
-            'tie_penalty': -0.25,
+            'tie_penalty': -1.25,
             'player': -1,
         },
         device=device
@@ -52,16 +53,17 @@ def main():
         else torch.device("cpu")
     )
 
-    lr = 0.003
+    lr = 0.0008
     max_grad_norm = 1.0
     frames_per_batch = 5_000
-    total_frames = 100_000
+    total_frames = 5_000_000
     num_envs = 4
-    num_epochs = 5
+    num_epochs = 3
     clip_epsilon = 0.2
-    gamma = 0.97
+    gamma = 0.99
     lmbda = 0.95
-    entropy_eps = 1e-4
+    entropy_eps = 1e-3
+    exp_name = 'exp1'
 
     #--- Policy ---#
     shared_actor_critic = SharedActorCritic()
@@ -108,8 +110,8 @@ def main():
         clip_epsilon=clip_epsilon,
         entropy_bonus=bool(entropy_eps),
         entropy_coef=entropy_eps,
-        critic_coef=1.0,
-        loss_critic_type="smooth_l1",
+        critic_coef=0.8,
+        loss_critic_type="l2",
         separate_losses=True,
     )
 
@@ -117,13 +119,12 @@ def main():
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer=optim,
         T_max=total_frames // frames_per_batch,
-        eta_min=lr / 10
+        eta_min=lr / 2
     )
 
 
-    logs = defaultdict(list)
-    pbar = tqdm(total=total_frames)
-    eval_str = ""
+    logger = CSVLogger(exp_name, 'results/logs')
+    pbar = tqdm(total=total_frames // frames_per_batch)
 
     # Collect Data
     for i, tensordict_data in enumerate(collector):
@@ -137,27 +138,25 @@ def main():
         for _ in range(num_epochs):
             data = advantage_module(gpu_dict)
             loss_vals = loss_module(data)
-            loss_value = (
-                loss_vals["loss_objective"]
-                + loss_vals["loss_critic"]
-                + loss_vals["loss_entropy"]
-            )
+            loss_value = loss_vals["loss_objective"] + loss_vals["loss_critic"] + loss_vals["loss_entropy"]
             loss_value.backward()
             torch.nn.utils.clip_grad_norm_(loss_module.parameters(), max_grad_norm)
             optim.step()
             optim.zero_grad()
 
         # After training, log diagnostics
-        logs["batch"].append(i)
-        logs["reward"].append(tensordict_data["next", "reward"].mean().item())
-        logs["step_count"].append(tensordict_data["step_count"].max().item())
-        logs["lr"].append(optim.param_groups[0]["lr"])
-        pbar.update(tensordict_data.numel())
-        cum_reward_str = f"average reward={logs['reward'][-1]: 4.4f} (init={logs['reward'][0]: 4.4f})"
-        stepcount_str = f"step count (max): {logs['step_count'][-1]}"
-        lr_str = f"lr policy: {logs['lr'][-1]: 4.4f}"
-        pbar.set_description(", ".join([eval_str, cum_reward_str, stepcount_str, lr_str]))
+        episodic = tensordict_data['next', 'reward'][tensordict_data['next', 'reward'] != 0]
+        logger.log_scalar('reward_mean', episodic.mean().item(), i)
+        logger.log_scalar('step_count_max', tensordict_data["step_count"].max().item(), i)
+        logger.log_scalar('lr', optim.param_groups[0]['lr'], i)
+        logger.log_scalar('loss_objective', loss_vals["loss_objective"].item(), i)
+        logger.log_scalar('loss_critic', loss_vals["loss_critic"].item(), i)
+        logger.log_scalar('loss_entropy', loss_vals["loss_entropy"].item(), i)
+        pbar.update()
         scheduler.step()
+
+        if (i+1) % 50 == 0:
+            torch.save(shared_actor_critic.state_dict(), f'results/state/{exp_name}/batch_{i}.pt')
 
         # Every once in a while, run evaluation
         # if i % 10 == 0:

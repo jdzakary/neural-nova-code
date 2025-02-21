@@ -13,7 +13,7 @@ class MegaTicTacToe(gym.Env):
 
     def __init__(self, options: dict, render_mode=None):
         self.observation_space = spaces.Dict({
-            'observations': spaces.Box(low=-1, high=1, shape=(1, 9, 9), dtype=np.float64),
+            'observations': spaces.Box(low=-1, high=1, shape=(3, 9, 9), dtype=np.float64),
             'action_mask': spaces.Box(low=0.0, high=1.0, shape=(81,), dtype=np.bool_)
         })
         self.action_space = spaces.Discrete(81)
@@ -31,10 +31,11 @@ class MegaTicTacToe(gym.Env):
     ) -> tuple[ObsType, dict[str, Any]]:
         super().reset(seed=seed)
         self.__game = Game()
+        self.__obs = np.zeros((3, 9, 9), dtype=np.float64)
         if self.__player == -1:
             self.__enemy_move()
         return {
-            'observations': np.expand_dims(self.__game.board, 0),
+            'observations': np.expand_dims(self.__obs, 0),
             'action_mask': self.__game.constraint.flatten().astype(np.bool_),
         }, {}
 
@@ -42,23 +43,24 @@ class MegaTicTacToe(gym.Env):
         self, action: ActType
     ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
         self.__game.move(*np.unravel_index(action, (9, 9)))
+        self.__update_obs()
         if not self.__game.game_over:
             self.__enemy_move()
         reward = 0
         info = {}
         if self.__game.game_over:
             if self.__game.winner == self.__player:
-                reward = 1
+                reward = 5
                 info['outcome'] = 'win'
             elif self.__game.winner == 0:
                 reward = self.__tie_penalty
                 info['outcome'] = 'tie'
             else:
-                reward = -1
+                reward = -5
                 info['outcome'] = 'lose'
         return (
             {
-                'observations': np.expand_dims(self.__game.board, 0),
+                'observations': np.expand_dims(self.__obs, 0),
                 'action_mask': self.__game.constraint.flatten().astype(np.bool_),
             },
             reward,
@@ -72,3 +74,8 @@ class MegaTicTacToe(gym.Env):
         idx = np.argwhere(mask).flatten()
         move = np.random.choice(idx)
         self.__game.move(*np.unravel_index(move, (9, 9)))
+        self.__update_obs()
+
+    def __update_obs(self) -> None:
+        self.__obs[1:, :, :] = self.__obs[0:2, :, :]
+        self.__obs[0, :, :] = self.__game.board
