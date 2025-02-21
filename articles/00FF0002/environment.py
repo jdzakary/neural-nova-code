@@ -14,7 +14,7 @@ class MegaTicTacToe(gym.Env):
     def __init__(self, options: dict, render_mode=None):
         self.observation_space = spaces.Dict({
             'observations': spaces.Box(low=-1, high=1, shape=(1, 9, 9), dtype=np.float64),
-            'action_mask': spaces.Box(low=0.0, high=1.0, shape=(81,), dtype=np.float64)
+            'action_mask': spaces.Box(low=0.0, high=1.0, shape=(81,), dtype=np.bool_)
         })
         self.action_space = spaces.Discrete(81)
         self.render_mode = render_mode
@@ -35,7 +35,7 @@ class MegaTicTacToe(gym.Env):
             self.__enemy_move()
         return {
             'observations': np.expand_dims(self.__game.board, 0),
-            'action_mask': self.__game.constraint.flatten(),
+            'action_mask': self.__game.constraint.flatten().astype(np.bool_),
         }, {}
 
     def step(
@@ -59,7 +59,7 @@ class MegaTicTacToe(gym.Env):
         return (
             {
                 'observations': np.expand_dims(self.__game.board, 0),
-                'action_mask': self.__game.constraint.flatten(),
+                'action_mask': self.__game.constraint.flatten().astype(np.bool_),
             },
             reward,
             self.__game.game_over,
