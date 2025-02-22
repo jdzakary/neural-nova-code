@@ -55,15 +55,15 @@ def main():
 
     lr = 0.0008
     max_grad_norm = 1.0
-    frames_per_batch = 5_000
-    total_frames = 5_000_000
+    frames_per_batch = 800
+    total_frames = 500_000
     num_envs = 4
     num_epochs = 3
     clip_epsilon = 0.2
-    gamma = 0.99
+    gamma = 0.985
     lmbda = 0.95
     entropy_eps = 1e-3
-    exp_name = 'exp1'
+    exp_name = 'exp2'
 
     #--- Policy ---#
     shared_actor_critic = SharedActorCritic()
@@ -119,7 +119,7 @@ def main():
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer=optim,
         T_max=total_frames // frames_per_batch,
-        eta_min=lr / 2
+        eta_min=lr / 5
     )
 
 
