@@ -32,6 +32,18 @@ class Game:
     def constraint(self) -> np.ndarray:
         return self.__constraint
 
+    @property
+    def big_next(self) -> bool:
+        return self.__big_next
+
+    @property
+    def big_board(self) -> np.ndarray:
+        return self.__big_board
+
+    @property
+    def target_square(self) -> (int, int):
+        return self.__target_square
+
     def __init__(self):
         self.__board = np.zeros((9, 9), dtype=np.float64)
         self.__big_board = np.zeros((3, 3), dtype=np.float64)
@@ -86,8 +98,11 @@ class Game:
 
         self.__constraint[:, :] = 0
         if self.__big_remaining[r, c] == 1:
+            self.__target_square = (r, c)
             self.__constraint[r*3:r*3+3, c*3:c*3+3] = 1
+            self.__big_next = False
         else:
+            self.__big_next = True
             for br in range(3):
                 for bc in range(3):
                     if self.__big_remaining[br, bc] == 1:

@@ -2,6 +2,7 @@ from typing import Any, SupportsFloat
 
 import gym
 import numpy as np
+import onnxruntime as ort
 from gym import spaces
 from gym.core import ObsType, ActType
 
@@ -22,6 +23,11 @@ class MegaTicTacToe(gym.Env):
         self.__player = options.get('player', 1)
         if self.__player not in [1, -1]:
             raise ValueError('Player Must be 1 or -1 (X or O)')
+        self.__session = ort.InferenceSession(
+            path_or_bytes='../00FF0000/exports/model-X.onnx',
+            providers=['CPUExecutionProvider']
+        )
+
 
     def reset(
         self,
@@ -33,7 +39,7 @@ class MegaTicTacToe(gym.Env):
         self.__game = Game()
         self.__obs = np.zeros((3, 9, 9), dtype=np.float64)
         if self.__player == -1:
-            self.__enemy_move()
+            self.__enemy_move_2()
         return {
             'observations': np.expand_dims(self.__obs, 0),
             'action_mask': self.__game.constraint.flatten().astype(np.bool_),
@@ -45,7 +51,7 @@ class MegaTicTacToe(gym.Env):
         self.__game.move(*np.unravel_index(action, (9, 9)))
         self.__update_obs()
         if not self.__game.game_over:
-            self.__enemy_move()
+            self.__enemy_move_2()
         reward = 0
         info = {}
         if self.__game.game_over:
@@ -69,12 +75,34 @@ class MegaTicTacToe(gym.Env):
             info
         )
 
-    def __enemy_move(self) -> None:
+    def __enemy_move_1(self) -> None:
         mask = self.__game.constraint.flatten()
         idx = np.argwhere(mask).flatten()
-        move = np.random.choice(idx)
+        # move = np.random.choice(idx)
+        move = idx[0]
         self.__game.move(*np.unravel_index(move, (9, 9)))
         self.__update_obs()
+
+    def __enemy_move_2(self) -> None:
+        mask = self.__game.constraint.flatten()
+        if self.__game.big_next:
+            output = self.__session.run(None, {
+                'obs': self.__game.big_board.astype(np.float32),
+                'mask': (self.__game.big_board == 0).astype(np.float32),
+            })
+            big_idx = int(output[0])
+            r = big_idx // 3
+            c = big_idx % 3
+        else:
+            r, c = self.__game.target_square
+        output = self.__session.run(None, {
+            'obs': self.__game.board[r*3:r*3+3, c*3:c*3+3].astype(np.float32),
+            'mask': self.__game.constraint[r*3:r*3+3, c*3:c*3+3].astype(np.float32),
+        })
+        idx = int(output[0]) + r * 9 + c
+        self.__game.move(*np.unravel_index(idx, (9, 9)))
+        self.__update_obs()
+
 
     def __update_obs(self) -> None:
         self.__obs[1:, :, :] = self.__obs[0:2, :, :]
