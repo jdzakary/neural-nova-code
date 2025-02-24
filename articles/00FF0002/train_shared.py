@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModule, ProbabilisticTensorDictSequential, ProbabilisticTensorDictModule
+from torchrl.data import ReplayBuffer, LazyTensorStorage, SamplerWithoutReplacement
 from torchrl.modules import MaskedOneHotCategorical
 from torchrl.collectors import MultiSyncDataCollector
 from torchrl.envs import GymEnv, TransformedEnv, DoubleToFloat, StepCounter, Compose
@@ -31,7 +32,7 @@ def create_env() -> TransformedEnv:
     base_env = GymEnv(
         env_name='MegaTicTacToe-v0',
         options={
-            'tie_penalty': -1.25,
+            'tie_penalty': -0.25,
             'player': -1,
         },
         device=device
@@ -54,17 +55,17 @@ def main():
         else torch.device("cpu")
     )
 
-    lr = 0.0006
+    lr = 0.0001
     max_grad_norm = 1.0
-    frames_per_batch = 1_000
-    total_frames = 400_000
-    num_envs = 4
+    frames_per_batch = 1000
+    total_frames = 500_000
+    num_envs = 3
     num_epochs = 3
-    clip_epsilon = 0.2
-    gamma = 0.985
+    clip_epsilon = 0.1
+    gamma = 0.99
     lmbda = 0.95
-    entropy_eps = 1e-3
-    exp_name = 'exp2'
+    entropy_eps = 0.1
+    exp_name = 'exp3'
 
     #--- Policy ---#
     shared_actor_critic = SharedActorCritic(
@@ -122,11 +123,11 @@ def main():
     )
 
     optim = torch.optim.Adam(loss_module.parameters(), lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer=optim,
-        T_max=total_frames // frames_per_batch,
-        eta_min=lr / 4
-    )
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    #     optimizer=optim,
+    #     T_max=total_frames // frames_per_batch,
+    #     eta_min=lr / 4
+    # )
 
     logger = CSVLogger(exp_name, 'results/logs')
     pbar = tqdm(total=total_frames // frames_per_batch)
@@ -167,7 +168,7 @@ def main():
             logger.log_scalar('loss_critic', loss_vals["loss_critic"].item(), i)
             logger.log_scalar('loss_entropy', loss_vals["loss_entropy"].item(), i)
             pbar.update()
-            scheduler.step()
+            # scheduler.step()
 
             if spacer > 40 and ema > best:
                 spacer = 0

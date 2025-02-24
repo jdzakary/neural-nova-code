@@ -56,13 +56,13 @@ class MegaTicTacToe(gym.Env):
         info = {}
         if self.__game.game_over:
             if self.__game.winner == self.__player:
-                reward = 5
+                reward = 1
                 info['outcome'] = 'win'
             elif self.__game.winner == 0:
                 reward = self.__tie_penalty
                 info['outcome'] = 'tie'
             else:
-                reward = -5
+                reward = -1
                 info['outcome'] = 'lose'
         return (
             {
@@ -84,24 +84,42 @@ class MegaTicTacToe(gym.Env):
         self.__update_obs()
 
     def __enemy_move_2(self) -> None:
-        mask = self.__game.constraint.flatten()
         if self.__game.big_next:
+            mask = np.zeros((10,), dtype=np.float32)
+            mask[0:9] = (self.__game.big_remaining == 1).flatten()
             output = self.__session.run(None, {
-                'obs': self.__game.big_board.astype(np.float32),
-                'mask': (self.__game.big_board == 0).astype(np.float32),
+                'obs': self.__game.big_board.astype(np.float32).flatten(),
+                'mask': mask,
             })
             big_idx = int(output[0])
             r = big_idx // 3
             c = big_idx % 3
         else:
             r, c = self.__game.target_square
+
+        mask = np.zeros((10,), dtype=np.float32)
+        mask[0:9] = self.__game.constraint[r*3:r*3+3, c*3:c*3+3].flatten()
         output = self.__session.run(None, {
-            'obs': self.__game.board[r*3:r*3+3, c*3:c*3+3].astype(np.float32),
-            'mask': self.__game.constraint[r*3:r*3+3, c*3:c*3+3].astype(np.float32),
+            'obs': self.__game.board[r*3:r*3+3, c*3:c*3+3].astype(np.float32).flatten(),
+            'mask': mask,
         })
-        idx = int(output[0]) + r * 9 + c
+        idx = int(output[0])
+        sr = idx // 3
+        sc = idx % 3
+        self.__game.move(sr+3*r, sc+3*c)
+        self.__update_obs()
+
+    def __enemy_move_3(self):
+        result = self.__session.run(None, {
+            'observations': -1 * self.__obs.astype(np.float32)
+        })
+        logits = result[0].flatten()
+        logits[self.__game.constraint.flatten() == 0] = -np.inf
+        idx = np.argmax(logits).flatten()[0]
         self.__game.move(*np.unravel_index(idx, (9, 9)))
         self.__update_obs()
+
+
 
 
     def __update_obs(self) -> None:

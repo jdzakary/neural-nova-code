@@ -44,6 +44,10 @@ class Game:
     def target_square(self) -> (int, int):
         return self.__target_square
 
+    @property
+    def big_remaining(self):
+        return self.__big_remaining
+
     def __init__(self):
         self.__board = np.zeros((9, 9), dtype=np.float64)
         self.__big_board = np.zeros((3, 3), dtype=np.float64)
@@ -52,6 +56,7 @@ class Game:
         self.__winner = 0
         self.__constraint = np.ones((9, 9), dtype=np.float64)
         self.__turns = 0
+        self.__big_next = True
 
     def __switch_player(self) -> None:
         self.__player *= -1
