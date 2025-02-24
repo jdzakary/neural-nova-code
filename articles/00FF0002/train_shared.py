@@ -7,7 +7,6 @@ import numpy as np
 import torch
 from tensordict import TensorDict
 from tensordict.nn import TensorDictModule, ProbabilisticTensorDictSequential, ProbabilisticTensorDictModule
-from torchrl.data import ReplayBuffer, LazyTensorStorage, SamplerWithoutReplacement
 from torchrl.modules import MaskedOneHotCategorical
 from torchrl.collectors import MultiSyncDataCollector
 from torchrl.envs import GymEnv, TransformedEnv, DoubleToFloat, StepCounter, Compose
@@ -16,7 +15,7 @@ from torchrl.objectives.value import GAE
 from torchrl.record import CSVLogger
 from tqdm import tqdm
 
-from model import SharedActorCritic
+from model.cnn import SharedActorCritic
 
 warnings.filterwarnings(action='ignore')
 
@@ -55,25 +54,21 @@ def main():
         else torch.device("cpu")
     )
 
-    lr = 0.0001
+    lr = 0.0003
     max_grad_norm = 1.0
-    frames_per_batch = 1000
+    frames_per_batch = 5_000
     total_frames = 500_000
-    num_envs = 3
+    sub_batch = 64
+    num_envs = 2
     num_epochs = 3
-    clip_epsilon = 0.1
-    gamma = 0.99
+    clip_epsilon = 0.15
+    gamma = 0.985
     lmbda = 0.95
-    entropy_eps = 0.1
+    entropy_eps = 0.05
     exp_name = 'exp3'
 
     #--- Policy ---#
-    shared_actor_critic = SharedActorCritic(
-        d_model=256,
-        nhead=4,
-        num_layers=3,
-        dim_feedforward=512,
-    )
+    shared_actor_critic = SharedActorCritic()
     shared_actor_critic.to(device=device)
     policy_module = TensorDictModule(
         module=shared_actor_critic,

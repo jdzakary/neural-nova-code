@@ -1,6 +1,6 @@
 import torch
 
-from model import SharedActorCritic
+from transformer import SharedActorCritic
 
 
 def export():

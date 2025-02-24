@@ -1,13 +1,12 @@
 import multiprocessing
+import random
 import warnings
 from collections import OrderedDict
 
 import gym
 import numpy as np
 import torch
-from tensordict import TensorDict
 from tensordict.nn import TensorDictModule, ProbabilisticTensorDictSequential, ProbabilisticTensorDictModule
-from torch.cuda.amp import GradScaler, autocast
 from torchrl.modules import MaskedOneHotCategorical
 from torchrl.collectors import MultiSyncDataCollector
 from torchrl.envs import GymEnv, TransformedEnv, DoubleToFloat, StepCounter, Compose
@@ -16,7 +15,7 @@ from torchrl.objectives.value import GAE
 from torchrl.record import CSVLogger
 from tqdm import tqdm
 
-from model import Actor, Critic
+from model.cnn import Actor, Critic
 
 warnings.filterwarnings(action='ignore')
 
@@ -32,8 +31,9 @@ def create_env() -> TransformedEnv:
     base_env = GymEnv(
         env_name='MegaTicTacToe-v0',
         options={
-            'tie_penalty': -1.25,
             'player': -1,
+            'reward': 1.0,
+            'tie_reward': 0.25,
         },
         device=device
     )
@@ -55,24 +55,21 @@ def main():
         else torch.device("cpu")
     )
 
-    lr = 0.0001
+    lr = 0.0003
     max_grad_norm = 1.0
-    frames_per_batch = 500
-    total_frames = 10_000_000
-    num_envs = 4
-    clip_epsilon = 0.1
-    gamma = 0.99
+    frames_per_batch = 5_000
+    sub_batch = 100
+    total_frames = 4_000_000
+    num_envs = 3
+    epochs = 4
+    clip_epsilon = 0.15
+    gamma = 0.985
     lmbda = 0.95
-    entropy_eps = 0.1
-    exp_name = 'exp3'
+    entropy_eps = 0.15
+    exp_name = 'exp2'
 
     #--- Policy ---#
-    actor_net = Actor(
-        d_model=256,
-        nhead=4,
-        num_layers=3,
-        dim_feedforward=512,
-    )
+    actor_net = Actor()
     actor_net.to(device=device)
     policy_module = TensorDictModule(
         module=actor_net,
@@ -133,25 +130,49 @@ def main():
     smooth_factor = 0.1
     best = -np.inf
     spacer = 0
+    logger.log_hparams({
+        'ema_smooth_factor': smooth_factor,
+        'learning_rate': lr,
+        'max_grad_norm': max_grad_norm,
+        'frames_per_batch': frames_per_batch,
+        'sub_batch': sub_batch,
+        'total_frames': total_frames,
+        'num_envs': num_envs,
+        'epochs': epochs,
+        'clip_epsilon': clip_epsilon,
+        'gamma': gamma,
+        'lambda': lmbda,
+        'entropy_eps': entropy_eps,
+    })
 
     # Collect Data
     try:
         for i, tensordict_data in enumerate(collector):
-            tensordict_data: TensorDict
             gpu_dict = tensordict_data.to(device=device)
-
-            # Train on batch
-            data = advantage_module(gpu_dict)
-            loss_vals = loss_module(data)
-            loss_value = loss_vals["loss_objective"] + loss_vals["loss_critic"] + loss_vals["loss_entropy"]
-            loss_value.backward()
-            torch.nn.utils.clip_grad_norm_(loss_module.parameters(), max_grad_norm)
-            optim.step()
-            optim.zero_grad()
+            for _ in range(epochs):
+                # Modifies GPU_DICT in place!!!
+                advantage_module(gpu_dict)
+                sampled_idx = []
+                for _ in range(frames_per_batch // sub_batch):
+                    subdata_idx = random.sample(
+                        population=[x for x in range(frames_per_batch) if x not in sampled_idx],
+                        k=sub_batch
+                    )
+                    sampled_idx.extend(subdata_idx)
+                    subdata = gpu_dict[subdata_idx]
+                    loss_vals = loss_module(subdata)
+                    loss_value = loss_vals["loss_objective"] + loss_vals["loss_critic"] + loss_vals["loss_entropy"]
+                    loss_value.backward()
+                    torch.nn.utils.clip_grad_norm_(loss_module.parameters(), max_grad_norm)
+                    optim.step()
+                    optim.zero_grad()
 
             # After training, log diagnostics
             episodic = tensordict_data['next', 'reward'][tensordict_data['next', 'reward'] != 0]
-            ema = (episodic.mean().item() * smooth_factor) + (ema * (1 - smooth_factor))
+            if i == 0:
+                ema = episodic.mean().item()
+            else:
+                ema = (episodic.mean().item() * smooth_factor) + (ema * (1 - smooth_factor))
             spacer += 1
             logger.log_scalar('reward_mean', episodic.mean().item(), i)
             logger.log_scalar('reward_smooth', ema, i)

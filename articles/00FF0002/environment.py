@@ -13,16 +13,24 @@ class MegaTicTacToe(gym.Env):
     metadata = {'render.modes': ['human']}
 
     def __init__(self, options: dict, render_mode=None):
+        # Misic
+        self.render_mode = render_mode
+
+        # Define Observations and Action Spaces
         self.observation_space = spaces.Dict({
             'observations': spaces.Box(low=-1, high=1, shape=(3, 9, 9), dtype=np.float64),
             'action_mask': spaces.Box(low=0.0, high=1.0, shape=(81,), dtype=np.bool_)
         })
         self.action_space = spaces.Discrete(81)
-        self.render_mode = render_mode
-        self.__tie_penalty = options.get('tie_penalty', 0.25)
+
+        # Env Flexible Config
+        self.__tie_reward = options.get('tie_reward', 0.25)
+        self.__reward = options.get('reward', 1.0)
         self.__player = options.get('player', 1)
         if self.__player not in [1, -1]:
             raise ValueError('Player Must be 1 or -1 (X or O)')
+
+        # Get Smart Opponent
         self.__session = ort.InferenceSession(
             path_or_bytes='../00FF0000/exports/model-X.onnx',
             providers=['CPUExecutionProvider']
@@ -56,13 +64,13 @@ class MegaTicTacToe(gym.Env):
         info = {}
         if self.__game.game_over:
             if self.__game.winner == self.__player:
-                reward = 1
+                reward = self.__reward
                 info['outcome'] = 'win'
             elif self.__game.winner == 0:
-                reward = self.__tie_penalty
+                reward = self.__tie_reward
                 info['outcome'] = 'tie'
             else:
-                reward = -1
+                reward = -1 * self.__reward
                 info['outcome'] = 'lose'
         return (
             {
