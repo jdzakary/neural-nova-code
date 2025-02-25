@@ -4,11 +4,13 @@ from torch import nn
 class Backbone(nn.Module):
     def __init__(self):
         super().__init__()
-        self.cnn = nn.Conv2d(in_channels=1, out_channels=256, kernel_size=3, stride=3)
+        self.cnn = nn.Conv2d(in_channels=1, out_channels=512, kernel_size=3, stride=3)
         self.flatten = nn.Flatten(1)
         self.linear = nn.Sequential(
             nn.ReLU(),
-            nn.Linear(in_features=256*9*3, out_features=1024),
+            nn.Linear(in_features=512*9*3, out_features=2400),
+            nn.ReLU(),
+            nn.Linear(in_features=2400, out_features=1024),
             nn.ReLU(),
             nn.Linear(in_features=1024, out_features=1024),
             nn.ReLU(),

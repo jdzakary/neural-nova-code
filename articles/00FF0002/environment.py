@@ -27,14 +27,26 @@ class MegaTicTacToe(gym.Env):
         self.__tie_reward = options.get('tie_reward', 0.25)
         self.__reward = options.get('reward', 1.0)
         self.__player = options.get('player', 1)
+        self.__opponent_mode = options.get('opponent_mode', 1)
+        model_file = options.get('model_file', '')
+
         if self.__player not in [1, -1]:
             raise ValueError('Player Must be 1 or -1 (X or O)')
 
-        # Get Smart Opponent
-        self.__session = ort.InferenceSession(
-            path_or_bytes='../00FF0000/exports/model-X.onnx',
-            providers=['CPUExecutionProvider']
-        )
+        if self.__opponent_mode == 1:
+            self.__enemy_move = self.__enemy_move_1
+        elif self.__opponent_mode == 2:
+            self.__enemy_move = self.__enemy_move_2
+            self.__session = ort.InferenceSession(
+                path_or_bytes='../00FF0000/exports/model-X.onnx',
+                providers=['CPUExecutionProvider']
+            )
+        elif self.__opponent_mode == 3:
+            self.__enemy_move = self.__enemy_move_3
+            self.__session = ort.InferenceSession(
+                path_or_bytes=model_file,
+                providers=['CPUExecutionProvider']
+            )
 
 
     def reset(
@@ -47,7 +59,7 @@ class MegaTicTacToe(gym.Env):
         self.__game = Game()
         self.__obs = np.zeros((3, 9, 9), dtype=np.float64)
         if self.__player == -1:
-            self.__enemy_move_2()
+            self.__enemy_move()
         return {
             'observations': np.expand_dims(self.__obs, 0),
             'action_mask': self.__game.constraint.flatten().astype(np.bool_),
@@ -59,7 +71,7 @@ class MegaTicTacToe(gym.Env):
         self.__game.move(*np.unravel_index(action, (9, 9)))
         self.__update_obs()
         if not self.__game.game_over:
-            self.__enemy_move_2()
+            self.__enemy_move()
         reward = 0
         info = {}
         if self.__game.game_over:

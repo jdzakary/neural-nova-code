@@ -34,6 +34,7 @@ def create_env() -> TransformedEnv:
             'player': -1,
             'reward': 1.0,
             'tie_reward': 0.25,
+            'opponent_mode': 1,
         },
         device=device
     )
@@ -55,18 +56,18 @@ def main():
         else torch.device("cpu")
     )
 
-    lr = 0.0003
+    lr = 0.0005
     max_grad_norm = 1.0
     frames_per_batch = 5_000
     sub_batch = 100
-    total_frames = 4_000_000
+    total_frames = 1_000_000
     num_envs = 3
-    epochs = 4
+    epochs = 5
     clip_epsilon = 0.15
     gamma = 0.985
     lmbda = 0.95
-    entropy_eps = 0.15
-    exp_name = 'exp2'
+    entropy_eps = 0.01
+    exp_name = 'exp5'
 
     #--- Policy ---#
     actor_net = Actor()
@@ -183,15 +184,17 @@ def main():
             logger.log_scalar('loss_critic', loss_vals["loss_critic"].item(), i)
             logger.log_scalar('loss_entropy', loss_vals["loss_entropy"].item(), i)
             pbar.update()
-            if spacer > 40 and ema > best:
+            if spacer > 20 and ema > best:
                 spacer = 0
                 best = ema
-                torch.save(actor.state_dict(), f'results/state/{exp_name}/batch_{i}_actor.pt')
+                torch.save(actor_net.state_dict(), f'results/state/{exp_name}/batch_{i}_actor.pt')
+                torch.save(critic_net.state_dict(), f'results/state/{exp_name}/batch_{i}_critic.pt')
     except KeyboardInterrupt:
         print('Training interrupted.')
     finally:
         # noinspection PyUnboundLocalVariable
-        torch.save(actor.state_dict(), f'results/state/{exp_name}/batch_{i}_actor.pt')
+        torch.save(actor_net.state_dict(), f'results/state/{exp_name}/batch_{i}_actor.pt')
+        torch.save(critic_net.state_dict(), f'results/state/{exp_name}/batch_{i}_critic.pt')
 
 
 if __name__ == "__main__":
