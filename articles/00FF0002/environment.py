@@ -1,10 +1,15 @@
+import functools
 from typing import Any, SupportsFloat
 
 import gym
+import gymnasium
 import numpy as np
 import onnxruntime as ort
 from gym import spaces
 from gym.core import ObsType, ActType
+from pettingzoo import AECEnv
+from pettingzoo.utils import agent_selector
+from pettingzoo.utils.env import AgentID, ActionType
 
 from game import Game
 
@@ -139,9 +144,88 @@ class MegaTicTacToe(gym.Env):
         self.__game.move(*np.unravel_index(idx, (9, 9)))
         self.__update_obs()
 
-
-
-
     def __update_obs(self) -> None:
         self.__obs[1:, :, :] = self.__obs[0:2, :, :]
         self.__obs[0, :, :] = self.__game.board
+
+
+class MultiAgent(AECEnv):
+    metadata = {'render.modes': ['human']}
+
+    def __init__(self, options: dict, render_mode=None):
+        super().__init__()
+        # Misic
+        self.render_mode = render_mode
+        self.possible_agents = ['X', 'O']
+
+        # Env Flexible Config
+        self.__tie_reward = options.get('tie_reward', 0.25)
+        self.__reward = options.get('reward', 1.0)
+
+    @functools.lru_cache(maxsize=None)
+    def observation_space(self, agent: AgentID) -> gymnasium.spaces.Space:
+        return gymnasium.spaces.Dict({
+            'observations': gymnasium.spaces.Box(low=-1, high=1, shape=(2, 9, 9), dtype=np.float64),
+            'action_mask': gymnasium.spaces.Box(low=0.0, high=1.0, shape=(81,), dtype=np.bool_)
+        })
+
+    @functools.lru_cache(maxsize=None)
+    def action_space(self, agent: AgentID) -> gymnasium.spaces.Space:
+        return gymnasium.spaces.Discrete(81)
+
+    def reset(
+        self,
+        seed: int | None = None,
+        options: dict | None = None,
+    ) -> None:
+        self.__game = Game()
+        self.__obs = np.zeros((2, 9, 9), dtype=np.float64)
+        self.agents = self.possible_agents[:]
+        self.rewards = {agent: 0 for agent in self.agents}
+        self._cumulative_rewards = {agent: 0 for agent in self.agents}
+        self.terminations = {agent: False for agent in self.agents}
+        self.truncations = {agent: False for agent in self.agents}
+        self.infos = {agent: {} for agent in self.agents}
+        self._agent_selector = agent_selector(self.agents)
+        self.agent_selection = self._agent_selector.next()
+
+    def step(self, action: ActionType) -> None:
+        if (
+            self.terminations[self.agent_selection]
+            or self.truncations[self.agent_selection]
+        ):
+            self._was_dead_step(action)
+            return
+        agent = self.agent_selection
+        self.__game.move(*np.unravel_index(action, (9, 9)))
+        self.__update_obs()
+
+        if self.__game.game_over:
+            if self.__game.winner == 1:
+                self.rewards['X'] = self.__reward
+                self.rewards['O'] = - self.__reward
+            elif self.__game.winner == -1:
+                self.rewards['O'] = self.__reward
+                self.rewards['X'] = - self.__reward
+            else:
+                self.rewards['X'] = self.__tie_reward
+                self.rewards['O'] = self.__tie_reward
+            self.terminations['X'] = True
+            self.terminations['O'] = True
+
+    def __update_obs(self) -> None:
+        self.__obs[1, :, :] = self.__obs[0, :, :]
+        self.__obs[0, :, :] = self.__game.board
+
+    def close(self):
+        pass
+
+    def observe(self, agent: AgentID) -> ObsType | None:
+        obs = np.copy(self.__obs)
+        mask = self.__game.constraint.flatten().astype(np.bool_)
+        if agent == 'O':
+            obs = -1 * obs
+        return {
+            'observations': obs,
+            'action_mask': mask
+        }
