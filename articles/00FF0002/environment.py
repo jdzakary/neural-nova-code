@@ -166,7 +166,7 @@ class MultiAgent(AECEnv):
     def observation_space(self, agent: AgentID) -> gymnasium.spaces.Space:
         return gymnasium.spaces.Dict({
             'observations': gymnasium.spaces.Box(low=-1, high=1, shape=(2, 9, 9), dtype=np.float64),
-            'action_mask': gymnasium.spaces.Box(low=0.0, high=1.0, shape=(81,), dtype=np.bool_)
+            'mask': gymnasium.spaces.Box(low=0.0, high=1.0, shape=(81,), dtype=np.bool_)
         })
 
     @functools.lru_cache(maxsize=None)
@@ -227,5 +227,5 @@ class MultiAgent(AECEnv):
             obs = -1 * obs
         return {
             'observations': obs,
-            'action_mask': mask
+            'mask': mask
         }

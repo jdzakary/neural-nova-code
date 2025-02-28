@@ -5,7 +5,7 @@ from collections import OrderedDict
 
 import numpy as np
 import torch
-from tensordict import TensorDictBase
+from tensordict import TensorDictBase, TensorDict
 from tensordict.nn import TensorDictModule, ProbabilisticTensorDictSequential, ProbabilisticTensorDictModule
 from torchrl.modules import MaskedOneHotCategorical
 from torchrl.collectors import MultiSyncDataCollector
@@ -89,7 +89,6 @@ def create_env() -> TransformedEnv:
     env = TransformedEnv(
         base_env,
         Compose(
-            # MultiAgentStackTransform(),
             DoubleToFloat(),
             StepCounter(),
         )
@@ -119,7 +118,6 @@ def main():
     entropy_eps = 0.01
     exp_name = 'exp6'
 
-    #--- Policy ---#
     actor_net = Actor()
     actor_net.to(device=device)
     policy_module = TensorDictModule(
@@ -127,6 +125,8 @@ def main():
         in_keys=[("X", "observation", "observations"), ("O", "observation", "observations")],
         out_keys=[("X", "logits"), ("O", "logits")],
     )
+    print('Created Policy')
+
     critic_net = Critic()
     critic_net.to(device=device)
     critic_module = TensorDictModule(
@@ -134,21 +134,46 @@ def main():
         in_keys=[("X", "observation", "observations"), ("O", "observation", "observations")],
         out_keys=[("X", "state_value"), ("O", "state_value")],
     )
+    print('Created Critic')
 
-    dist = ProbabilisticTensorDictModule(
-        in_keys=[
-            ("X", "logits"), ("O", "logits"),
-            ("X", "action_mask"), ("O", "action_mask")
-        ],
-        out_keys=[('X', 'action'), ('O', 'action')],
+    temp = TensorDict({
+        ("O", "observation", "observations"): torch.randn(1, 2, 9, 9),
+        ("X", "observation", "observations"): torch.randn(1, 2, 9, 9),
+        ("O", "mask"): torch.ones(1, 81, dtype=torch.bool),
+        ("X", "mask"): torch.ones(1, 81, dtype=torch.bool)
+    }, batch_size=[1]).to(device)
+
+    dist_x = ProbabilisticTensorDictModule(
+        in_keys={
+            'logits': ("X", "logits"),
+            'mask': ("X", "mask")
+        },
+        out_keys=('X', 'action'),
         distribution_class=MaskedOneHotCategorical,
         return_log_prob=True,
-        log_prob_key=[('X', 'action_log_prob'), ('O', 'action_log_prob')],
+        log_prob_key=('X', 'action_log_prob'),
     )
+    dist_o = ProbabilisticTensorDictModule(
+        in_keys={
+            'logits': ("O", "logits"),
+            'mask': ("O", "mask")
+        },
+        out_keys=('O', 'action'),
+        distribution_class=MaskedOneHotCategorical,
+        return_log_prob=True,
+        log_prob_key=('O', 'action_log_prob'),
+    )
+    print('Created Distributions')
 
     actor = ProbabilisticTensorDictSequential(
-        OrderedDict({'module': policy_module, 'dist': dist})
+        OrderedDict({
+            'module': policy_module,
+            'dist_x': dist_x,
+            'dist_o': dist_o,
+        }),
+        return_composite=True
     )
+    print('Created Sequential')
 
     collector = MultiSyncDataCollector(
         create_env_fn=[create_env for _ in range(num_envs)],
@@ -159,6 +184,7 @@ def main():
         update_at_each_batch=True,
         cat_results=0
     )
+    print('Created Collector')
 
     advantage_module = GAE(
         gamma=gamma,
@@ -166,6 +192,7 @@ def main():
         value_network=critic_module,
         average_gae=False,
     )
+    print('Created GAE')
 
     loss_module = ClipPPOLoss(
         actor_network=actor,
@@ -177,15 +204,15 @@ def main():
         loss_critic_type="smooth_l1",
         normalize_advantage=False,
     )
+    print('Created Loss')
     loss_module.set_keys(
-        # reward=env.reward_key,
-        # action=env.action_key,
-        value=("agents", "state_value"),
-        done=("agents", "done"),
-        terminated=("agents", "terminated"),
+        reward=[('X', 'reward'), ('O', 'reward')],
+        action=[('X', 'action'), ('O', 'action')],
+        value=[("X", "state_value"), ("O", "state_value")],
     )
-    optim = torch.optim.Adam(loss_module.parameters(), lr)
+    print('Set Loss Keys')
 
+    optim = torch.optim.Adam(loss_module.parameters(), lr)
     logger = CSVLogger(exp_name, 'results/logs')
     pbar = tqdm(total=total_frames // frames_per_batch)
     ema = 0
