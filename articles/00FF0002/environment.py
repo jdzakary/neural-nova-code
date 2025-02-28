@@ -165,7 +165,7 @@ class MultiAgent(AECEnv):
     @functools.lru_cache(maxsize=None)
     def observation_space(self, agent: AgentID) -> gymnasium.spaces.Space:
         return gymnasium.spaces.Dict({
-            'observations': gymnasium.spaces.Box(low=-1, high=1, shape=(2, 9, 9), dtype=np.float64),
+            'obs': gymnasium.spaces.Box(low=-1, high=1, shape=(2, 9, 9), dtype=np.float64),
             'mask': gymnasium.spaces.Box(low=0.0, high=1.0, shape=(81,), dtype=np.bool_)
         })
 
@@ -196,8 +196,11 @@ class MultiAgent(AECEnv):
         ):
             self._was_dead_step(action)
             return
+        idx = np.argwhere(action).flatten()
+        if len(idx) != 1:
+            raise ValueError('IDX too long!!')
         agent = self.agent_selection
-        self.__game.move(*np.unravel_index(action, (9, 9)))
+        self.__game.move(*np.unravel_index(idx[0], (9, 9)))
         self.__update_obs()
 
         if self.__game.game_over:
@@ -212,6 +215,7 @@ class MultiAgent(AECEnv):
                 self.rewards['O'] = self.__tie_reward
             self.terminations['X'] = True
             self.terminations['O'] = True
+        self.agent_selection = self._agent_selector.next()
 
     def __update_obs(self) -> None:
         self.__obs[1, :, :] = self.__obs[0, :, :]
@@ -226,6 +230,6 @@ class MultiAgent(AECEnv):
         if agent == 'O':
             obs = -1 * obs
         return {
-            'observations': obs,
+            'obs': obs,
             'mask': mask
         }

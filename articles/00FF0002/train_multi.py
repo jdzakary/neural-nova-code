@@ -2,6 +2,7 @@ import multiprocessing
 import random
 import warnings
 from collections import OrderedDict
+from typing import Literal
 
 import numpy as np
 import torch
@@ -96,6 +97,33 @@ def create_env() -> TransformedEnv:
     return env
 
 
+def create_agent(label: Literal['X', 'O'], device):
+    actor_net = Actor()
+    actor_net.to(device=device)
+    policy_module = TensorDictModule(
+        module=actor_net,
+        in_keys=(label, "observation", "obs"),
+        out_keys=(label, "logits"),
+    )
+    critic_net = Critic()
+    critic_net.to(device=device)
+    critic_module = TensorDictModule(
+        module=critic_net,
+        in_keys=(label, "observation", "obs"),
+        out_keys=(label, "state_value"),
+    )
+    dist = ProbabilisticTensorDictModule(
+        in_keys={
+            'logits': ("X", "logits"),
+            'mask': ("X", "observation", "mask")
+        },
+        out_keys=('X', 'action'),
+        distribution_class=MaskedOneHotCategorical,
+        return_log_prob=True,
+        log_prob_key=('X', 'action_log_prob'),
+    )
+
+
 def main():
     #--- Config ---#
     is_fork = multiprocessing.get_start_method() == "fork"
@@ -107,10 +135,10 @@ def main():
 
     lr = 0.0005
     max_grad_norm = 1.0
-    frames_per_batch = 5_000
+    frames_per_batch = 1_000
     sub_batch = 100
     total_frames = 1_000_000
-    num_envs = 3
+    num_envs = 2
     epochs = 5
     clip_epsilon = 0.15
     gamma = 0.985
@@ -122,31 +150,22 @@ def main():
     actor_net.to(device=device)
     policy_module = TensorDictModule(
         module=actor_net,
-        in_keys=[("X", "observation", "observations"), ("O", "observation", "observations")],
+        in_keys=[("X", "observation", "obs"), ("O", "observation", "obs")],
         out_keys=[("X", "logits"), ("O", "logits")],
     )
-    print('Created Policy')
 
     critic_net = Critic()
     critic_net.to(device=device)
     critic_module = TensorDictModule(
         module=critic_net,
-        in_keys=[("X", "observation", "observations"), ("O", "observation", "observations")],
+        in_keys=[("X", "observation", "obs"), ("O", "observation", "obs")],
         out_keys=[("X", "state_value"), ("O", "state_value")],
     )
-    print('Created Critic')
-
-    temp = TensorDict({
-        ("O", "observation", "observations"): torch.randn(1, 2, 9, 9),
-        ("X", "observation", "observations"): torch.randn(1, 2, 9, 9),
-        ("O", "mask"): torch.ones(1, 81, dtype=torch.bool),
-        ("X", "mask"): torch.ones(1, 81, dtype=torch.bool)
-    }, batch_size=[1]).to(device)
 
     dist_x = ProbabilisticTensorDictModule(
         in_keys={
             'logits': ("X", "logits"),
-            'mask': ("X", "mask")
+            'mask': ("X", "observation", "mask")
         },
         out_keys=('X', 'action'),
         distribution_class=MaskedOneHotCategorical,
@@ -156,14 +175,13 @@ def main():
     dist_o = ProbabilisticTensorDictModule(
         in_keys={
             'logits': ("O", "logits"),
-            'mask': ("O", "mask")
+            'mask': ("O", "observation", "mask")
         },
         out_keys=('O', 'action'),
         distribution_class=MaskedOneHotCategorical,
         return_log_prob=True,
         log_prob_key=('O', 'action_log_prob'),
     )
-    print('Created Distributions')
 
     actor = ProbabilisticTensorDictSequential(
         OrderedDict({
@@ -173,7 +191,6 @@ def main():
         }),
         return_composite=True
     )
-    print('Created Sequential')
 
     collector = MultiSyncDataCollector(
         create_env_fn=[create_env for _ in range(num_envs)],
@@ -184,7 +201,6 @@ def main():
         update_at_each_batch=True,
         cat_results=0
     )
-    print('Created Collector')
 
     advantage_module = GAE(
         gamma=gamma,
@@ -192,7 +208,9 @@ def main():
         value_network=critic_module,
         average_gae=False,
     )
-    print('Created GAE')
+    advantage_module.set_keys(
+        reward=('next', 'X', 'reward'),
+    )
 
     loss_module = ClipPPOLoss(
         actor_network=actor,
@@ -204,13 +222,11 @@ def main():
         loss_critic_type="smooth_l1",
         normalize_advantage=False,
     )
-    print('Created Loss')
     loss_module.set_keys(
         reward=[('X', 'reward'), ('O', 'reward')],
         action=[('X', 'action'), ('O', 'action')],
         value=[("X", "state_value"), ("O", "state_value")],
     )
-    print('Set Loss Keys')
 
     optim = torch.optim.Adam(loss_module.parameters(), lr)
     logger = CSVLogger(exp_name, 'results/logs')
@@ -238,9 +254,11 @@ def main():
     try:
         for i, tensordict_data in enumerate(collector):
             gpu_dict = tensordict_data.to(device=device)
+            print(gpu_dict)
             for _ in range(epochs):
-                # Modifies GPU_DICT in place!!!
                 advantage_module(gpu_dict)
+                print('Yay!')
+                exit()
                 sampled_idx = []
                 for _ in range(frames_per_batch // sub_batch):
                     subdata_idx = random.sample(

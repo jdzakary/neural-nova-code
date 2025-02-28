@@ -78,9 +78,12 @@ class Critic(nn.Module):
             nn.Linear(in_features=256, out_features=1),
         )
 
-    def forward(self, observations: torch.Tensor):
-        if len(observations.shape) == 3:
-            observations = observations.unsqueeze(0)
-        backbone_out = self.backbone(observations)
-        values = self.value_head(backbone_out)
-        return values
+    def forward(self, obs_x: torch.Tensor, obs_o: torch.Tensor):
+        if len(obs_x.shape) == 5:
+            obs_x = obs_x.squeeze(1)
+            obs_o = obs_o.squeeze(1)
+        backbone_x = self.backbone(obs_x)
+        backbone_o = self.backbone(obs_o)
+        value_x = self.value_head(backbone_x)
+        value_o = self.value_head(backbone_o)
+        return value_x, value_o
