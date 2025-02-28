@@ -46,7 +46,7 @@ def create():
 
 def compose():
     p1 = onnx.load_model('models/start_wrapper.onnx')
-    p2 = onnx.load_model('models/depth-anything-q1.onnx')
+    p2 = onnx.load_model('models/depth-anything-q2.onnx')
     p3 = onnx.load_model('models/end_wrapper.onnx')
     m1 = onnx.compose.add_prefix(p1, 'm1.')
     m2 = onnx.compose.add_prefix(p2, 'm2.')
@@ -54,7 +54,7 @@ def compose():
 
     c1 = onnx.compose.merge_models(m1, m2, [('m1.torch_ready', 'm2.l_x_')])
     c2 = onnx.compose.merge_models(c1, m3, [('m2.select_36', 'm3.torch_result')])
-    onnx.save_model(c2, 'models/depth-anything-web-q1.onnx')
+    onnx.save_model(c2, 'models/depth-anything-web-q2.onnx')
 
 
 create()
