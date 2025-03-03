@@ -7,7 +7,8 @@ from typing import Literal
 import numpy as np
 import torch
 from tensordict import TensorDictBase, TensorDict
-from tensordict.nn import TensorDictModule, ProbabilisticTensorDictSequential, ProbabilisticTensorDictModule
+from tensordict.nn import TensorDictModule, ProbabilisticTensorDictSequential, ProbabilisticTensorDictModule, \
+    TensorDictSequential
 from torchrl.modules import MaskedOneHotCategorical
 from torchrl.collectors import MultiSyncDataCollector
 from torchrl.envs import GymEnv, TransformedEnv, DoubleToFloat, StepCounter, Compose, PettingZooWrapper, Transform
@@ -97,7 +98,14 @@ def create_env() -> TransformedEnv:
     return env
 
 
-def create_agent(label: Literal['X', 'O'], device):
+def create_agent(
+    label: Literal['X', 'O'],
+    device: torch.device,
+    clip_epsilon: float,
+    entropy_eps: float,
+    gamma: float,
+    lmbda: float
+):
     actor_net = Actor()
     actor_net.to(device=device)
     policy_module = TensorDictModule(
@@ -114,18 +122,54 @@ def create_agent(label: Literal['X', 'O'], device):
     )
     dist = ProbabilisticTensorDictModule(
         in_keys={
-            'logits': ("X", "logits"),
-            'mask': ("X", "observation", "mask")
+            'logits': (label, "logits"),
+            'mask': (label, "observation", "mask")
         },
-        out_keys=('X', 'action'),
+        out_keys=(label, 'action'),
         distribution_class=MaskedOneHotCategorical,
         return_log_prob=True,
-        log_prob_key=('X', 'action_log_prob'),
+        log_prob_key=(label, 'action_log_prob'),
     )
+
+    actor = ProbabilisticTensorDictSequential(
+        OrderedDict({
+            'module': policy_module,
+            'dist': dist,
+        })
+    )
+
+    loss_module = ClipPPOLoss(
+        actor_network=actor,
+        critic_network=critic_module,
+        clip_epsilon=clip_epsilon,
+        entropy_bonus=bool(entropy_eps),
+        entropy_coef=entropy_eps,
+        critic_coef=0.8,
+        loss_critic_type="smooth_l1",
+    )
+    loss_module.set_keys(
+        reward=(label, 'reward'),
+        action=(label, 'action'),
+        value=(label, "state_value"),
+    )
+
+    advantage_module = GAE(
+        gamma=gamma,
+        lmbda=lmbda,
+        value_network=critic_module,
+        average_gae=True,
+    )
+    advantage_module.set_keys(
+        reward=(label, 'reward'),
+        value=(label, "state_value"),
+        done=(label, 'done'),
+        terminated=(label, 'terminated')
+    )
+
+    return actor, loss_module, advantage_module
 
 
 def main():
-    #--- Config ---#
     is_fork = multiprocessing.get_start_method() == "fork"
     device = (
         torch.device(0)
@@ -146,55 +190,13 @@ def main():
     entropy_eps = 0.01
     exp_name = 'exp6'
 
-    actor_net = Actor()
-    actor_net.to(device=device)
-    policy_module = TensorDictModule(
-        module=actor_net,
-        in_keys=[("X", "observation", "obs"), ("O", "observation", "obs")],
-        out_keys=[("X", "logits"), ("O", "logits")],
-    )
-
-    critic_net = Critic()
-    critic_net.to(device=device)
-    critic_module = TensorDictModule(
-        module=critic_net,
-        in_keys=[("X", "observation", "obs"), ("O", "observation", "obs")],
-        out_keys=[("X", "state_value"), ("O", "state_value")],
-    )
-
-    dist_x = ProbabilisticTensorDictModule(
-        in_keys={
-            'logits': ("X", "logits"),
-            'mask': ("X", "observation", "mask")
-        },
-        out_keys=('X', 'action'),
-        distribution_class=MaskedOneHotCategorical,
-        return_log_prob=True,
-        log_prob_key=('X', 'action_log_prob'),
-    )
-    dist_o = ProbabilisticTensorDictModule(
-        in_keys={
-            'logits': ("O", "logits"),
-            'mask': ("O", "observation", "mask")
-        },
-        out_keys=('O', 'action'),
-        distribution_class=MaskedOneHotCategorical,
-        return_log_prob=True,
-        log_prob_key=('O', 'action_log_prob'),
-    )
-
-    actor = ProbabilisticTensorDictSequential(
-        OrderedDict({
-            'module': policy_module,
-            'dist_x': dist_x,
-            'dist_o': dist_o,
-        }),
-        return_composite=True
-    )
+    actor_x, loss_x, adv_x = create_agent('X', device, clip_epsilon, entropy_eps, gamma, lmbda)
+    actor_o, loss_o, adv_o = create_agent('O', device, clip_epsilon, entropy_eps, gamma, lmbda)
+    combined_policy = TensorDictSequential([actor_x, actor_o])
 
     collector = MultiSyncDataCollector(
         create_env_fn=[create_env for _ in range(num_envs)],
-        policy=actor,
+        policy=combined_policy,
         frames_per_batch=frames_per_batch,
         total_frames=total_frames,
         device='cpu',
@@ -202,33 +204,23 @@ def main():
         cat_results=0
     )
 
-    advantage_module = GAE(
-        gamma=gamma,
-        lmbda=lmbda,
-        value_network=critic_module,
-        average_gae=False,
-    )
-    advantage_module.set_keys(
-        reward=('next', 'X', 'reward'),
-    )
+    optimisers = {
+        'X': torch.optim.Adam(
+                loss_x.parameters(), lr=lr
+            ),
+        'O': torch.optim.Adam(
+                loss_o.parameters(), lr=lr
+            ),
+    }
+    losses = {
+        'X': loss_x,
+        'O': loss_o,
+    }
+    advs = {
+        'X': adv_x,
+        'O': adv_o,
+    }
 
-    loss_module = ClipPPOLoss(
-        actor_network=actor,
-        critic_network=critic_module,
-        clip_epsilon=clip_epsilon,
-        entropy_bonus=bool(entropy_eps),
-        entropy_coef=entropy_eps,
-        critic_coef=0.8,
-        loss_critic_type="smooth_l1",
-        normalize_advantage=False,
-    )
-    loss_module.set_keys(
-        reward=[('X', 'reward'), ('O', 'reward')],
-        action=[('X', 'action'), ('O', 'action')],
-        value=[("X", "state_value"), ("O", "state_value")],
-    )
-
-    optim = torch.optim.Adam(loss_module.parameters(), lr)
     logger = CSVLogger(exp_name, 'results/logs')
     pbar = tqdm(total=total_frames // frames_per_batch)
     ema = 0
@@ -253,54 +245,62 @@ def main():
     # Collect Data
     try:
         for i, tensordict_data in enumerate(collector):
-            gpu_dict = tensordict_data.to(device=device)
-            print(gpu_dict)
-            for _ in range(epochs):
-                advantage_module(gpu_dict)
-                print('Yay!')
-                exit()
-                sampled_idx = []
-                for _ in range(frames_per_batch // sub_batch):
-                    subdata_idx = random.sample(
-                        population=[x for x in range(frames_per_batch) if x not in sampled_idx],
-                        k=sub_batch
-                    )
-                    sampled_idx.extend(subdata_idx)
-                    subdata = gpu_dict[subdata_idx]
-                    loss_vals = loss_module(subdata)
-                    loss_value = loss_vals["loss_objective"] + loss_vals["loss_critic"] + loss_vals["loss_entropy"]
-                    loss_value.backward()
-                    torch.nn.utils.clip_grad_norm_(loss_module.parameters(), max_grad_norm)
-                    optim.step()
-                    optim.zero_grad()
+            gpu_dict: TensorDict = tensordict_data.to(device=device)
+
+            # TorchRL multi-agent wrapper sets batch size to [B, 1]... we need [B]
+            gpu_dict['collector', 'traj_ids'] = gpu_dict['collector', 'traj_ids'].unsqueeze(1)
+            gpu_dict.batch_size = [1000, 1]
+            gpu_dict = gpu_dict.squeeze(1)
+
+            # Train each agent
+            for group in ['X', 'O']:
+                loss_module = losses[group]
+                adv = advs[group]
+                optim = optimisers[group]
+                for _ in range(epochs):
+                    adv(gpu_dict)
+                    sampled_idx = []
+                    for _ in range(frames_per_batch // sub_batch):
+                        subdata_idx = random.sample(
+                            population=[x for x in range(frames_per_batch) if x not in sampled_idx],
+                            k=sub_batch
+                        )
+                        sampled_idx.extend(subdata_idx)
+                        subdata = gpu_dict[subdata_idx]
+                        loss_vals = loss_module(subdata)
+                        loss_value = loss_vals["loss_objective"] + loss_vals["loss_critic"] + loss_vals["loss_entropy"]
+                        loss_value.backward()
+                        torch.nn.utils.clip_grad_norm_(loss_module.parameters(), max_grad_norm)
+                        optim.step()
+                        optim.zero_grad()
 
             # After training, log diagnostics
-            episodic = tensordict_data['next', 'reward'][tensordict_data['next', 'reward'] != 0]
+            episodic_x = tensordict_data['next', 'X', 'reward'][tensordict_data['next', 'X', 'reward'] != 0]
+            win_x = (episodic_x == 1).sum() / len(episodic_x)
+            win_o = (episodic_x == -1).sum() / len(episodic_x)
+            tie = (episodic_x == 0.25).sum() / len(episodic_x)
             if i == 0:
-                ema = episodic.mean().item()
+                ema = tie.item()
             else:
-                ema = (episodic.mean().item() * smooth_factor) + (ema * (1 - smooth_factor))
+                ema = (tie.item() * smooth_factor) + (ema * (1 - smooth_factor))
             spacer += 1
-            logger.log_scalar('reward_mean', episodic.mean().item(), i)
-            logger.log_scalar('reward_smooth', ema, i)
-            logger.log_scalar('step_count_max', tensordict_data["step_count"].max().item(), i)
-            logger.log_scalar('lr', optim.param_groups[0]['lr'], i)
-            # noinspection PyUnboundLocalVariable
-            logger.log_scalar('loss_objective', loss_vals["loss_objective"].item(), i)
-            logger.log_scalar('loss_critic', loss_vals["loss_critic"].item(), i)
-            logger.log_scalar('loss_entropy', loss_vals["loss_entropy"].item(), i)
+            logger.log_scalar('reward_x', episodic_x.mean().item(), i)
+            logger.log_scalar('win_x', win_x, i)
+            logger.log_scalar('win_o', win_o, i)
+            logger.log_scalar('tie', tie, i)
+            logger.log_scalar('tie_smooth', ema, i)
             pbar.update()
             if spacer > 20 and ema > best:
                 spacer = 0
                 best = ema
-                torch.save(actor_net.state_dict(), f'results/state/{exp_name}/batch_{i}_actor.pt')
-                torch.save(critic_net.state_dict(), f'results/state/{exp_name}/batch_{i}_critic.pt')
+                torch.save(actor_x.state_dict(), f'results/state/{exp_name}/batch_{i}_actor_x.pt')
+                torch.save(actor_o.state_dict(), f'results/state/{exp_name}/batch_{i}_actor_o.pt')
     except KeyboardInterrupt:
         print('Training interrupted.')
     finally:
         # noinspection PyUnboundLocalVariable
-        torch.save(actor_net.state_dict(), f'results/state/{exp_name}/batch_{i}_actor.pt')
-        torch.save(critic_net.state_dict(), f'results/state/{exp_name}/batch_{i}_critic.pt')
+        torch.save(actor_x.state_dict(), f'results/state/{exp_name}/batch_{i}_actor_x.pt')
+        torch.save(actor_o.state_dict(), f'results/state/{exp_name}/batch_{i}_actor_o.pt')
 
 
 if __name__ == "__main__":

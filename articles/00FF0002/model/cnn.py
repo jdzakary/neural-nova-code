@@ -57,15 +57,11 @@ class Actor(nn.Module):
             nn.Linear(in_features=256, out_features=81),
         )
 
-    def forward(self, obs_x: torch.Tensor, obs_o: torch.Tensor):
-        if len(obs_x.shape) == 5:
-            obs_x = obs_x.squeeze(1)
-            obs_o = obs_o.squeeze(1)
-        backbone_x = self.backbone(obs_x)
-        backbone_o = self.backbone(obs_o)
-        logits_x = self.actor_head(backbone_x)
-        logits_o = self.actor_head(backbone_o)
-        return logits_x, logits_o
+    def forward(self, obs: torch.Tensor):
+        if len(obs.shape) == 5:
+            obs = obs.squeeze(1)
+        backbone = self.backbone(obs)
+        return self.actor_head(backbone)
 
 
 class Critic(nn.Module):
@@ -78,12 +74,8 @@ class Critic(nn.Module):
             nn.Linear(in_features=256, out_features=1),
         )
 
-    def forward(self, obs_x: torch.Tensor, obs_o: torch.Tensor):
-        if len(obs_x.shape) == 5:
-            obs_x = obs_x.squeeze(1)
-            obs_o = obs_o.squeeze(1)
-        backbone_x = self.backbone(obs_x)
-        backbone_o = self.backbone(obs_o)
-        value_x = self.value_head(backbone_x)
-        value_o = self.value_head(backbone_o)
-        return value_x, value_o
+    def forward(self, obs: torch.Tensor):
+        if len(obs.shape) == 5:
+            obs = obs.squeeze(1)
+        backbone = self.backbone(obs)
+        return self.value_head(backbone)
