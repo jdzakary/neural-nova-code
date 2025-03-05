@@ -8,11 +8,9 @@ class Backbone(nn.Module):
         self.flatten = nn.Flatten(1)
         self.linear = nn.Sequential(
             nn.ReLU(),
-            nn.Linear(in_features=512*9*2, out_features=2400),
+            nn.Linear(in_features=512*9*2, out_features=4800),
             nn.ReLU(),
-            nn.Linear(in_features=2400, out_features=1024),
-            nn.ReLU(),
-            nn.Linear(in_features=1024, out_features=1024),
+            nn.Linear(in_features=4800, out_features=1024),
             nn.ReLU(),
         )
 
@@ -52,9 +50,9 @@ class Actor(nn.Module):
         super().__init__()
         self.backbone = Backbone()
         self.actor_head = nn.Sequential(
-            nn.Linear(in_features=1024, out_features=256),
-            nn.ReLU(),
-            nn.Linear(in_features=256, out_features=81),
+            # nn.Linear(in_features=1024, out_features=512),
+            # nn.ReLU(),
+            nn.Linear(in_features=1024, out_features=81),
         )
 
     def forward(self, obs: torch.Tensor):
@@ -69,9 +67,9 @@ class Critic(nn.Module):
         super().__init__()
         self.backbone = Backbone()
         self.value_head = nn.Sequential(
-            nn.Linear(in_features=1024, out_features=256),
-            nn.ReLU(),
-            nn.Linear(in_features=256, out_features=1),
+            # nn.Linear(in_features=1024, out_features=512),
+            # nn.ReLU(),
+            nn.Linear(in_features=1024, out_features=1),
         )
 
     def forward(self, obs: torch.Tensor):

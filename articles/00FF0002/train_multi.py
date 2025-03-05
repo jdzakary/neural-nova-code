@@ -23,58 +23,6 @@ from environment import MultiAgent
 warnings.filterwarnings(action='ignore')
 
 
-class MultiAgentStackTransform(Transform):
-    def __init__(self, in_keys=None, out_keys=None):
-        # Define default input and output keys
-        if in_keys is None:
-            in_keys = {
-                "observation": [("O", "observation", "observations"), ("X", "observation", "observations")],
-                "action_mask": [("O", "action_mask"), ("X", "action_mask")]
-            }
-        if out_keys is None:
-            out_keys = {
-                "observation": ("agents", "observation"),
-                "action_mask": ("agents", "action_mask")
-            }
-
-        # Initialize parent class with in_keys and out_keys
-        super().__init__(in_keys=in_keys, out_keys=out_keys)
-        self.in_keys_dict = in_keys
-        self.out_keys_dict = out_keys
-
-    def _call(self, tensordict: TensorDictBase) -> TensorDictBase:
-        """Process the tensordict during forward step."""
-        # Stack observations
-        obs_o = tensordict.get(self.in_keys_dict["observation"][0]).squeeze(1)  # [5, 2, 9, 9]
-        obs_x = tensordict.get(self.in_keys_dict["observation"][1]).squeeze(1)  # [5, 2, 9, 9]
-        stacked_obs = torch.stack([obs_o, obs_x], dim=1)  # [5, 2, 2, 9, 9]
-        tensordict.set(self.out_keys_dict["observation"], stacked_obs)
-
-        # Stack action masks
-        mask_o = tensordict.get(self.in_keys_dict["action_mask"][0]).squeeze(1)  # [5, 81]
-        mask_x = tensordict.get(self.in_keys_dict["action_mask"][1]).squeeze(1)  # [5, 81]
-        stacked_masks = torch.stack([mask_o, mask_x], dim=1)  # [5, 2, 81]
-        tensordict.set(self.out_keys_dict["action_mask"], stacked_masks)
-
-        return tensordict
-
-    def _reset(self, tensordict: TensorDictBase, tensordict_reset: TensorDictBase) -> TensorDictBase:
-        """Process the tensordict during reset."""
-        # Apply the same transformation as in _call
-        return self._call(tensordict_reset)
-
-    def transform_output_spec(self, output_spec):
-        """Update the environment spec to reflect the transformed keys."""
-        # This is optional and depends on whether you need to update the spec
-        # For simplicity, we assume the spec is handled by the base env
-        return output_spec
-
-    def _inv_call(self, tensordict: TensorDictBase) -> TensorDictBase:
-        """Optional: Inverse transform (not needed here, but included for completeness)."""
-        # If you need to reverse the stacking (e.g., for action mapping), implement it here
-        return tensordict
-
-
 def create_env() -> TransformedEnv:
     device = 'cpu'
     base_env = PettingZooWrapper(
@@ -177,18 +125,18 @@ def main():
         else torch.device("cpu")
     )
 
-    lr = 0.0005
+    lr = 0.001
     max_grad_norm = 1.0
-    frames_per_batch = 1_000
-    sub_batch = 100
-    total_frames = 1_000_000
-    num_envs = 2
-    epochs = 5
-    clip_epsilon = 0.15
-    gamma = 0.985
+    frames_per_batch = 4_000
+    sub_batch = 400
+    total_frames = 4_000_000
+    num_envs = 4
+    epochs = 3
+    clip_epsilon = 0.2
+    gamma = 1
     lmbda = 0.95
-    entropy_eps = 0.01
-    exp_name = 'exp6'
+    entropy_eps = 0.0005
+    exp_name = 'exp7'
 
     actor_x, loss_x, adv_x = create_agent('X', device, clip_epsilon, entropy_eps, gamma, lmbda)
     actor_o, loss_o, adv_o = create_agent('O', device, clip_epsilon, entropy_eps, gamma, lmbda)
@@ -249,7 +197,8 @@ def main():
 
             # TorchRL multi-agent wrapper sets batch size to [B, 1]... we need [B]
             gpu_dict['collector', 'traj_ids'] = gpu_dict['collector', 'traj_ids'].unsqueeze(1)
-            gpu_dict.batch_size = [1000, 1]
+            b = gpu_dict.batch_size[0]
+            gpu_dict.batch_size = [b, 1]
             gpu_dict = gpu_dict.squeeze(1)
 
             # Train each agent
@@ -290,7 +239,7 @@ def main():
             logger.log_scalar('tie', tie, i)
             logger.log_scalar('tie_smooth', ema, i)
             pbar.update()
-            if spacer > 20 and ema > best:
+            if spacer > 40 and ema > best:
                 spacer = 0
                 best = ema
                 torch.save(actor_x.state_dict(), f'results/state/{exp_name}/batch_{i}_actor_x.pt')
