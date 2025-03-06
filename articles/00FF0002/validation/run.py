@@ -1,15 +1,21 @@
+import json
+import os.path
+import sys
 from typing import Callable
-
 import numpy as np
 import time
+
+sys.path.append(os.path.dirname(__file__))
+
 from game_vectorized import GameVectorized
-from models import model_v1, ModelWrapper
+from models import model_rand_1, ModelWrapper, load_saved_model, ModelV2
 
 
 def explore(
     model: Callable,
     starting: np.ndarray,
     last_move: int,
+    print_results: bool = True,
 ):
     # Check input
     if starting.shape != (1, 9, 9):
@@ -40,13 +46,14 @@ def explore(
         active_history = active_history[~finished]
         t2 = time.perf_counter()
         move_count += 1
-        print(
-            f'X {move_count:>2} '
-            f'{active_history.shape[0]:>16,} '
-            f'{result_winner.size:>12,} '
-            f'{t2 - t1:>10.3f} '
-            f'{game.board.nbytes / 1000_000:>8,.2f} MB'
-        )
+        if print_results:
+            print(
+                f'X {move_count:>2} '
+                f'{active_history.shape[0]:>16,} '
+                f'{result_winner.size:>12,} '
+                f'{t2 - t1:>10.3f} '
+                f'{game.board.nbytes / 1000_000:>8,.2f} MB'
+            )
 
     while game.board.shape[0] > 0:
         t1 = time.perf_counter()
@@ -59,13 +66,14 @@ def explore(
         active_history = active_history[~finished]
         t2 = time.perf_counter()
         move_count += 1
-        print(
-            f'O {move_count:>2} '
-            f'{active_history.shape[0]:>16,} '
-            f'{result_winner.size:>12,} '
-            f'{t2 - t1:>10.3f} '
-            f'{game.board.nbytes / 1000_000:>8,.2f} MB'
-        )
+        if print_results:
+            print(
+                f'O {move_count:>2} '
+                f'{active_history.shape[0]:>16,} '
+                f'{result_winner.size:>12,} '
+                f'{t2 - t1:>10.3f} '
+                f'{game.board.nbytes / 1000_000:>8,.2f} MB'
+            )
 
         t1 = time.perf_counter()
         moves = expand_unexplored(game)
@@ -78,13 +86,14 @@ def explore(
         active_history = active_history[~finished]
         t2 = time.perf_counter()
         move_count += 1
-        print(
-            f'X {move_count:>2} '
-            f'{active_history.shape[0]:>16,} '
-            f'{result_winner.size:>12,} '
-            f'{t2 - t1:>10.3f} '
-            f'{game.board.nbytes / 1000_000:>8,.2f} MB'
-        )
+        if print_results:
+            print(
+                f'X {move_count:>2} '
+                f'{active_history.shape[0]:>16,} '
+                f'{result_winner.size:>12,} '
+                f'{t2 - t1:>10.3f} '
+                f'{game.board.nbytes / 1000_000:>8,.2f} MB'
+            )
     return result_board, result_winner, result_history
 
 
@@ -146,7 +155,6 @@ def initialize_game(starting: np.ndarray, last_move: int) -> GameVectorized:
 def create_starting(file_name: str) -> np.ndarray:
     starting: np.ndarray = np.load(file_name)
     starting = starting.astype(np.int8)
-    visualize_board(starting)
     return starting.reshape((1, 9, 9))
 
 
@@ -179,19 +187,37 @@ def visualize_board(board: np.ndarray) -> None:
     print('-' * 13)
 
 
+def compute_score(
+    loss: float,
+    tie: float,
+    slope: float = -0.1
+) -> float:
+    return slope * tie / (2 - tie - loss) + 1 - loss
+
+
 def main():
-    print('Starting Main!')
-    starting = create_starting('start_1.npy')
-    model = ModelWrapper()
+    checkpoint = '../results/state/exp7/batch_423_actor_o.pt'
+    base_model = load_saved_model(checkpoint, ModelV2)
+    start_board = 'start_1'
+    starting = create_starting(f'boards/{start_board}.npy')
+    visualize_board(starting[0])
+    with open('boards/last_move.json', 'r') as file:
+        move_map = json.load(file)
+
+    model = ModelWrapper(model=base_model, max_batch=5_000)
     result_board, result_winner, result_history = explore(
         model=model.run,
         starting=starting,
-        last_move=2,
+        last_move=move_map[start_board],
     )
     print(result_board.shape)
-    print(f'Win X: {np.mean(result_winner == 1) * 100:.3f} %')
-    print(f'Win O: {np.mean(result_winner == -1) * 100:.3f} %')
-    print(f'Tie  : {np.mean(result_winner == 0) * 100:.3f} %')
+    win_x = np.mean(result_winner == 1)
+    win_o = np.mean(result_winner == -1)
+    tie = np.mean(result_winner == 0)
+    print(f'Win X: {win_x * 100:.3f} %')
+    print(f'Win O: {win_o * 100:.3f} %')
+    print(f'Tie  : {tie * 100:.3f} %')
+    print(f'\nFinal Score: {compute_score(float(win_x), float(tie)):.4f}')
 
 
 if __name__ == '__main__':

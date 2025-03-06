@@ -5,18 +5,20 @@ class Backbone(nn.Module):
     def __init__(self):
         super().__init__()
         self.cnn = nn.Conv2d(in_channels=1, out_channels=512, kernel_size=3, stride=3)
+        self.dropout = nn.Dropout2d(0.2)
         self.flatten = nn.Flatten(1)
         self.linear = nn.Sequential(
             nn.ReLU(),
             nn.Linear(in_features=512*9*2, out_features=4800),
             nn.ReLU(),
+            nn.Dropout(0.2),
             nn.Linear(in_features=4800, out_features=1024),
             nn.ReLU(),
         )
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
-        cnn_out_0 = self.flatten(self.cnn(observations[:, 0:1, :, :]))
-        cnn_out_1 = self.flatten(self.cnn(observations[:, 1:2, :, :]))
+        cnn_out_0 = self.flatten(self.dropout(self.cnn(observations[:, 0:1, :, :])))
+        cnn_out_1 = self.flatten(self.dropout(self.cnn(observations[:, 1:2, :, :])))
         cnn_total = torch.cat((cnn_out_0, cnn_out_1), 1)
         return self.linear(cnn_total)
 

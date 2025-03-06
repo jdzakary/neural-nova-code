@@ -1,17 +1,19 @@
+import json
 import multiprocessing
 import random
+import time
 import warnings
 from collections import OrderedDict
 from typing import Literal
 
 import numpy as np
 import torch
-from tensordict import TensorDictBase, TensorDict
+from tensordict import TensorDict
 from tensordict.nn import TensorDictModule, ProbabilisticTensorDictSequential, ProbabilisticTensorDictModule, \
     TensorDictSequential
 from torchrl.modules import MaskedOneHotCategorical
 from torchrl.collectors import MultiSyncDataCollector
-from torchrl.envs import GymEnv, TransformedEnv, DoubleToFloat, StepCounter, Compose, PettingZooWrapper, Transform
+from torchrl.envs import TransformedEnv, DoubleToFloat, StepCounter, Compose, PettingZooWrapper, Transform
 from torchrl.objectives import ClipPPOLoss
 from torchrl.objectives.value import GAE
 from torchrl.record import CSVLogger
@@ -19,6 +21,8 @@ from tqdm import tqdm
 
 from model.cnn import Actor, Critic
 from environment import MultiAgent
+from validation.models import ModelWrapper
+from validation.run import create_starting, compute_score, explore
 
 warnings.filterwarnings(action='ignore')
 
@@ -114,7 +118,7 @@ def create_agent(
         terminated=(label, 'terminated')
     )
 
-    return actor, loss_module, advantage_module
+    return actor, loss_module, advantage_module, actor_net
 
 
 def main():
@@ -126,6 +130,7 @@ def main():
     )
 
     lr = 0.001
+    lr_target = 0.00005
     max_grad_norm = 1.0
     frames_per_batch = 4_000
     sub_batch = 400
@@ -136,10 +141,11 @@ def main():
     gamma = 1
     lmbda = 0.95
     entropy_eps = 0.0005
-    exp_name = 'exp7'
+    exp_name = 'exp8'
 
-    actor_x, loss_x, adv_x = create_agent('X', device, clip_epsilon, entropy_eps, gamma, lmbda)
-    actor_o, loss_o, adv_o = create_agent('O', device, clip_epsilon, entropy_eps, gamma, lmbda)
+    actor_x, loss_x, adv_x, net_x = create_agent('X', device, clip_epsilon, entropy_eps, gamma, lmbda)
+    actor_o, loss_o, adv_o, nex_o = create_agent('O', device, clip_epsilon, entropy_eps, gamma, lmbda)
+
     combined_policy = TensorDictSequential([actor_x, actor_o])
 
     collector = MultiSyncDataCollector(
@@ -149,7 +155,9 @@ def main():
         total_frames=total_frames,
         device='cpu',
         update_at_each_batch=True,
-        cat_results=0
+        cat_results=0,
+        reset_at_each_iter=True,
+        policy_device='cuda:0'
     )
 
     optimisers = {
@@ -168,16 +176,22 @@ def main():
         'X': adv_x,
         'O': adv_o,
     }
+    schedule_x = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimisers['X'], total_frames // frames_per_batch, lr_target
+    )
+    schedule_o = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimisers['O'], total_frames // frames_per_batch, lr_target
+    )
 
     logger = CSVLogger(exp_name, 'results/logs')
     pbar = tqdm(total=total_frames // frames_per_batch)
     ema = 0
     smooth_factor = 0.1
     best = -np.inf
-    spacer = 0
     logger.log_hparams({
         'ema_smooth_factor': smooth_factor,
         'learning_rate': lr,
+        'learning_rate_target': lr_target,
         'max_grad_norm': max_grad_norm,
         'frames_per_batch': frames_per_batch,
         'sub_batch': sub_batch,
@@ -190,9 +204,19 @@ def main():
         'entropy_eps': entropy_eps,
     })
 
+    # Setup validation
+    model = ModelWrapper(model=nex_o, max_batch=5_000)
+    start_board = 'start_1'
+    starting = create_starting(f'validation/boards/{start_board}.npy')
+    with open('validation/boards/last_move.json', 'r') as file:
+        move_map = json.load(file)
+    score = 0
+
     # Collect Data
     try:
+        t3 = time.perf_counter()
         for i, tensordict_data in enumerate(collector):
+            t1 = time.perf_counter()
             gpu_dict: TensorDict = tensordict_data.to(device=device)
 
             # TorchRL multi-agent wrapper sets batch size to [B, 1]... we need [B]
@@ -223,6 +247,8 @@ def main():
                         optim.step()
                         optim.zero_grad()
 
+            t2 = time.perf_counter()
+
             # After training, log diagnostics
             episodic_x = tensordict_data['next', 'X', 'reward'][tensordict_data['next', 'X', 'reward'] != 0]
             win_x = (episodic_x == 1).sum() / len(episodic_x)
@@ -232,18 +258,35 @@ def main():
                 ema = tie.item()
             else:
                 ema = (tie.item() * smooth_factor) + (ema * (1 - smooth_factor))
-            spacer += 1
             logger.log_scalar('reward_x', episodic_x.mean().item(), i)
             logger.log_scalar('win_x', win_x, i)
             logger.log_scalar('win_o', win_o, i)
             logger.log_scalar('tie', tie, i)
             logger.log_scalar('tie_smooth', ema, i)
             pbar.update()
-            if spacer > 40 and ema > best:
-                spacer = 0
-                best = ema
-                torch.save(actor_x.state_dict(), f'results/state/{exp_name}/batch_{i}_actor_x.pt')
-                torch.save(actor_o.state_dict(), f'results/state/{exp_name}/batch_{i}_actor_o.pt')
+            pbar.set_description(f'Collect: {t1-t3:.1f}s Train: {t2-t1:.1f}s Score: {score:.4f}')
+
+            schedule_x.step()
+            schedule_o.step()
+
+            # Perform Validation
+            if (i+1) % 10 == 0:
+                actor_o.eval()
+                result_board, result_winner, result_history = explore(
+                    model=model.run,
+                    starting=starting,
+                    last_move=move_map[start_board],
+                    print_results=False,
+                )
+                actor_o.train()
+                win_x = np.mean(result_winner == 1)
+                win_o = np.mean(result_winner == -1)
+                tie = np.mean(result_winner == 0)
+                score = compute_score(float(win_x), float(tie))
+                logger.log_scalar('validation_score', score, i)
+
+
+            t3 = time.perf_counter()
     except KeyboardInterrupt:
         print('Training interrupted.')
     finally:
