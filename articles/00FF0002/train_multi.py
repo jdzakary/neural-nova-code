@@ -130,7 +130,7 @@ def main():
     )
 
     lr = 0.001
-    lr_target = 0.00005
+    lr_target = 0.001
     max_grad_norm = 1.0
     frames_per_batch = 4_000
     sub_batch = 400
@@ -140,11 +140,11 @@ def main():
     clip_epsilon = 0.2
     gamma = 1
     lmbda = 0.95
-    entropy_eps = 0.0005
+    entropy_eps = 0.005
     exp_name = 'exp8'
 
     actor_x, loss_x, adv_x, net_x = create_agent('X', device, clip_epsilon, entropy_eps, gamma, lmbda)
-    actor_o, loss_o, adv_o, nex_o = create_agent('O', device, clip_epsilon, entropy_eps, gamma, lmbda)
+    actor_o, loss_o, adv_o, net_o = create_agent('O', device, clip_epsilon, entropy_eps, gamma, lmbda)
 
     combined_policy = TensorDictSequential([actor_x, actor_o])
 
@@ -205,9 +205,17 @@ def main():
     })
 
     # Setup validation
-    model = ModelWrapper(model=nex_o, max_batch=5_000)
-    start_board = 'start_1'
-    starting = create_starting(f'validation/boards/{start_board}.npy')
+    model = ModelWrapper(model=net_o, max_batch=5_000)
+    start_1 = create_starting(f'validation/boards/start_1.npy')
+    start_3 = create_starting(f'validation/boards/start_3.npy')
+    start_4 = create_starting(f'validation/boards/start_4.npy')
+    start_6 = create_starting(f'validation/boards/start_6.npy')
+    start_map = [
+        (start_1, 'start_1'),
+        (start_3, 'start_3'),
+        (start_4, 'start_4'),
+        (start_6, 'start_6'),
+    ]
     with open('validation/boards/last_move.json', 'r') as file:
         move_map = json.load(file)
     score = 0
@@ -271,19 +279,29 @@ def main():
 
             # Perform Validation
             if (i+1) % 10 == 0:
+                temp = 0
+                temp_len = 0
                 actor_o.eval()
-                result_board, result_winner, result_history = explore(
-                    model=model.run,
-                    starting=starting,
-                    last_move=move_map[start_board],
-                    print_results=False,
-                )
+                for (starting, name) in start_map:
+                    result_board, result_winner, result_history = explore(
+                        model=model.run,
+                        starting=starting,
+                        last_move=move_map[name],
+                        print_results=False,
+                    )
+                    win_x = np.mean(result_winner == 1)
+                    win_o = np.mean(result_winner == -1)
+                    tie = np.mean(result_winner == 0)
+                    temp += compute_score(float(win_x), float(tie)) * result_winner.size
+                    temp_len += result_winner.size
+
+                score = temp / temp_len
                 actor_o.train()
-                win_x = np.mean(result_winner == 1)
-                win_o = np.mean(result_winner == -1)
-                tie = np.mean(result_winner == 0)
-                score = compute_score(float(win_x), float(tie))
                 logger.log_scalar('validation_score', score, i)
+
+            if (i+1) % 50 == 0:
+                torch.save(net_x.state_dict(), f'results/state/{exp_name}/batch_{i}_actor_x.pt')
+                torch.save(net_o.state_dict(), f'results/state/{exp_name}/batch_{i}_actor_o.pt')
 
 
             t3 = time.perf_counter()
@@ -291,8 +309,8 @@ def main():
         print('Training interrupted.')
     finally:
         # noinspection PyUnboundLocalVariable
-        torch.save(actor_x.state_dict(), f'results/state/{exp_name}/batch_{i}_actor_x.pt')
-        torch.save(actor_o.state_dict(), f'results/state/{exp_name}/batch_{i}_actor_o.pt')
+        torch.save(net_x.state_dict(), f'results/state/{exp_name}/batch_{i}_actor_x.pt')
+        torch.save(net_o.state_dict(), f'results/state/{exp_name}/batch_{i}_actor_o.pt')
 
 
 if __name__ == "__main__":

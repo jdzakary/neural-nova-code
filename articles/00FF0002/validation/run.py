@@ -198,7 +198,7 @@ def compute_score(
 def main():
     checkpoint = '../results/state/exp7/batch_423_actor_o.pt'
     base_model = load_saved_model(checkpoint, ModelV2)
-    start_board = 'start_1'
+    start_board = 'start_3'
     starting = create_starting(f'boards/{start_board}.npy')
     visualize_board(starting[0])
     with open('boards/last_move.json', 'r') as file:
