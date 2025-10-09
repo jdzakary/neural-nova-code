@@ -5,6 +5,7 @@ possible games of tic-tac-toe using recursion.
 If we identify any situations in which our agent loses, we will print the
 sequence of moves so we can test it ourselves.
 """
+import argparse
 from pathlib import Path
 from typing import Callable, Literal
 
@@ -24,9 +25,10 @@ class Model:
         self,
         player: Literal['X', 'O'],
         model_name: str,
+        export_dir: str,
     ) -> None:
         self.__player = 1 if player == 'X' else -1
-        file_name = str(PROJECT_PATH / f'exports/{model_name}.onnx')
+        file_name = str(PROJECT_PATH / f'exports/{export_dir}/{model_name}.onnx')
         self.__model = onnxruntime.InferenceSession(
             path_or_bytes=file_name,
             providers=['CPUExecutionProvider']
@@ -76,7 +78,7 @@ def compute_unexplored(history: bytes) -> list[list[int]]:
     ]
 
 
-def compute_board(history: list[int] | bytes) -> np.ndarray:
+def compute_board(history) -> np.ndarray:
     """
     Given a sequence of moves, compute the board state.
     """
@@ -142,7 +144,7 @@ def show_stats(results: list[Literal['X', 'O', 'Tie']], model: Literal['X', 'O']
     print(f"Tie  : {results.count('Tie') / len(results):.4f}")
 
 
-def show_game_history(history: list[int] | bytes) -> None:
+def show_game_history(history) -> None:
     """
     Print the game history to console.
     """
@@ -154,14 +156,14 @@ def show_game_history(history: list[int] | bytes) -> None:
         player = 'O' if player == 'X' else 'X'
 
 
-def main() -> None:
+def main(args) -> None:
     """
     Test both RL agents against every possible tic-tac-toe game.
     Compute percentages for win/tie/loss, and show the sequence
     of moves that result in any losses.
     """
     print('Model is O:')
-    model = Model(player='O', model_name='model-O')
+    model = Model(player='O', model_name='model-O', export_dir=args.export_dir)
     result_o = explore(model.move, move_first=True)
     winner_o = [compute_winner(r) for r in result_o]
     show_stats(winner_o, 'O')
@@ -170,11 +172,15 @@ def main() -> None:
             print(list(result_o[i]))
 
     print('\nModel is X:')
-    model = Model(player='X', model_name='model-X')
+    model = Model(player='X', model_name='model-X', export_dir=args.export_dir)
     result_x = explore(model.move, move_first=False)
     winner_x = [compute_winner(r) for r in result_x]
     show_stats(winner_x, 'X')
 
 
 if __name__ == '__main__':
-    main()
+    # python validation.py --export-dir 'replication'
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--export-dir", type=str)
+    args = parser.parse_args()
+    main(args)

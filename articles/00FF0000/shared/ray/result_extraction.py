@@ -15,12 +15,15 @@ def extract_df(trial: str, keep: list[str] = None) -> pd.DataFrame:
         will prune DF to only contain these columns.
         If not provided, will keep all columns.
     """
-    df = pd.read_csv(f'{trial}/progress.csv')
-    df.dropna(axis=0, inplace=True)
-    if keep is not None:
-        drop = [c for c in df.columns if c not in keep]
-        df.drop(labels=drop, axis=1, inplace=True)
-    return df
+    path = f'{trial}/progress.csv'
+    if os.path.exists(path):
+        df = pd.read_csv(path)
+        df.dropna(axis=0, inplace=True)
+        if keep is not None:
+            drop = [c for c in df.columns if c not in keep]
+            df.drop(labels=drop, axis=1, inplace=True)
+        return df
+    return None
 
 
 def extract_all_df(experiment: str, threshold: int = 0) -> pd.DataFrame:
@@ -39,9 +42,10 @@ def extract_all_df(experiment: str, threshold: int = 0) -> pd.DataFrame:
     df = pd.DataFrame([])
     for trial in trials:
         new = extract_df(f'{experiment}/{trial}')
-        new['trial'] = trial
-        if len(new) > threshold:
-            df = pd.concat((df, new.iloc[threshold:, :]), ignore_index=True)
+        if (new is not None):
+            new['trial'] = trial
+            if len(new) > threshold:
+                df = pd.concat((df, new.iloc[threshold:, :]), ignore_index=True)
     df.reset_index(inplace=True, drop=True)
     return df
 
@@ -60,7 +64,7 @@ def get_max_score_iter(group, target: str):
 def identify_best(
     experiment: str,
     target_metric: str,
-    threshold: int = 100
+    threshold: int = 0,
 ) -> pd.DataFrame:
     """
     Identify the top trials in a Ray experiment based on

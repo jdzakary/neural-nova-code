@@ -20,7 +20,7 @@ data printed to it.
 
 from __future__ import annotations
 
-import curses
+#import curses
 import time
 from typing import TYPE_CHECKING, Optional, Any, Literal
 from datetime import datetime, timedelta
@@ -77,7 +77,8 @@ class CustomReporter(ProgressReporter):
         self.__last_report_time = 0
         self.__last_update_time = 0
         self.__start_time = 0
-        self.__window: curses.window
+        # The various warnings that occur due to the transition to the new API stack break curses pretty badly. I've stubbed it out and replaced it with a print statement.
+        #self.__window: curses.window
         self.__counter = 0
         self.__metric_columns = metric_columns or {}
         self.__parameter_columns = parameter_columns or {}
@@ -171,8 +172,8 @@ class CustomReporter(ProgressReporter):
         now = datetime.fromtimestamp(now)
         start = datetime.fromtimestamp(self.__start_time)
         elapsed: timedelta = now - start
-        self.__window.addstr(0, 0, f'Time Elapsed: {elapsed}')
-        self.__window.refresh()
+        '''self.__window.addstr(0, 0, f'Time Elapsed: {elapsed}')
+        self.__window.refresh()'''
 
     # noinspection PyUnresolvedReferences
     def report(self, trials: list[Trial], done: bool, *sys_info: dict):
@@ -182,8 +183,9 @@ class CustomReporter(ProgressReporter):
         stats = self.__create_stats_table(trials)
         info = sys_info[0] + ' ' + sys_info[1]
         # self.__window.addstr(1, 0, info)
-        self.__window.addstr(3, 0, stats.__repr__())
-        self.__window.refresh()
+        '''self.__window.addstr(3, 0, stats.__repr__())
+        self.__window.refresh()'''
+        print(stats.__repr__())
 
     def setup(
         self,
@@ -201,9 +203,9 @@ class CustomReporter(ProgressReporter):
             self.__start_time = time.time()
         else:
             self.__start_time = start_time
-        self.__window = curses.initscr()
+        '''self.__window = curses.initscr()
         curses.noecho()
         curses.cbreak()
         curses.start_color()
-        curses.use_default_colors()
+        curses.use_default_colors()'''
 

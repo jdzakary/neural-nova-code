@@ -1,0 +1,2 @@
+EnvSteps,Iters,TimeThisIter,TimeTotal,WinO,WinX,EpisodeReturnMean,EpisodeLengthMean,Tie,ReturnX,ReturnO
+4000.0,1,23.7908,23.7908,0.2203,0.6517,-0.2253,6.59,0.128,0.2693,-0.4947

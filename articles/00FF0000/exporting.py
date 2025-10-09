@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 from typing import Literal
 
@@ -90,18 +91,26 @@ def onnx_export(model_torch: ModelExport, save_name: str) -> None:
     )
 
 
-def main():
-    folder = construct_state_path(
-        checkpoint_dir='Random-First-Move/d0b80b71/checkpoint_000011',
-        policy_name='pX'
-    )
-    replacement_map = {
-        'encoder.actor_encoder.net.mlp': 'actor_encoder',
-        'pi.net.mlp': 'pi',
-    }
-    model = create_torch_model(ModelExport(), folder, replacement_map)
-    onnx_export(model, 'exports/model-X.onnx')
+def main(args):
+    for p in ['X','O']:
+        folder = construct_state_path(
+            checkpoint_dir=args.checkpoint_dir, # e.g. 'Random-First-Move/d0b80b71/checkpoint_000011'
+            policy_name=f'p{p}'
+        )
+        replacement_map = {
+            'encoder.encoder.net.mlp': 'actor_encoder',
+            'pi.net.mlp': 'pi',
+        }
+        ignore_keys = ['pi.log_std_clip_param_const']
+        model = create_torch_model(ModelExport(), folder, replacement_map,ignore_keys)
+        Path(f'exports/{args.export_dir}').mkdir(parents=True, exist_ok=True)
+        onnx_export(model, f'exports/{args.export_dir}/model-{p}.onnx')
 
 
 if __name__ == '__main__':
-    main()
+    # python exporting.py --checkpoint-dir 'Random-First-Move/2da66817/checkpoint_000002' --export-dir 'replication'
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--checkpoint-dir", type=str)
+    parser.add_argument("--export-dir", type=str)
+    args = parser.parse_args()
+    main(args)

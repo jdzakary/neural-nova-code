@@ -27,7 +27,7 @@ class Game:
         return self.__winner != 0 or self.remaining_moves == 0
 
     @property
-    def winner_symbol(self) -> Literal['X', 'O'] | None:
+    def winner_symbol(self):
         if self.__winner == 1:
             return 'X'
         elif self.__winner == -1:
@@ -36,7 +36,7 @@ class Game:
             return None
 
     def __init__(self):
-        self.__board = np.zeros((3, 3), dtype=np.int8)
+        self.__board = np.zeros((3, 3))
         self.__player = 1
         self.__winner = 0
 
@@ -47,9 +47,11 @@ class Game:
         if self.game_over:
             raise ValueError('Game is already over!')
         if self.__board[a, b] != 0:
-            raise ValueError('Space is occupied')
-
-        self.__board[a, b] = self.__player
+            # Can happen 'legitimately' if env_checker makes 'O' move into a spot set by __random_first
+            #raise ValueError('Space is occupied')
+            pass
+        else:
+            self.__board[a, b] = self.__player
         if self.__check_winner(self.__board, self.__player):
             self.__winner = self.__player
         else:

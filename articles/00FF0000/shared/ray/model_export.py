@@ -13,6 +13,7 @@ def create_torch_model(
     model_torch: T,
     state_folder: str | PathLike,
     replacement_map: dict[str, str],
+    ignore_keys=[]
 ) -> T:
     """
     Constructs a pytorch model using the weights of an RlModule checkpoint.
@@ -43,6 +44,9 @@ def create_torch_model(
 
     for key, value in state_dict.items():
         state_dict[key] = torch.from_numpy(value)
+        
+    for key in ignore_keys:
+        del state_dict[key]
 
     model_torch.load_state_dict(state_dict)
     return model_torch
