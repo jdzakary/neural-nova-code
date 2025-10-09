@@ -170,7 +170,7 @@ def main(args):
             max_concurrent=5,
         ),
         scheduler=ASHAScheduler(
-            time_attr="training_iterations",
+            time_attr="training_iteration",
             grace_period=grace_period_iter, # Don't stop trials before this point
             max_t=max_iter_individual,      # Stop trials after this point, no matter what
         ),
